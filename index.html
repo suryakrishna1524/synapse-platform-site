@@ -46,6 +46,7 @@
         <!-- Tab Navigation -->
         <div class="nav-tabs" style="display:flex; gap:0.5rem;">
           <button id="tab-dashboard" class="btn btn-primary">📊 Dashboard</button>
+          <button id="tab-alerts" class="btn btn-secondary">🚨 Alerts & Forecast</button>
           <button id="tab-audit" class="btn btn-secondary">🛡️ Audit Logs</button>
           <button id="tab-webhooks" class="btn btn-secondary">🔔 Webhooks</button>
         </div>
@@ -259,6 +260,84 @@
                 <strong style="color: var(--accent-primary);">1 MB Strict</strong>
               </div>
             </div>
+          </div>
+        </section>
+      <!-- VIEW 4: Anomaly Alerts & Predictive Forecasting -->
+      <div id="view-alerts" class="view-panel" style="display:none;">
+        <section class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Active Anomalies</span>
+              <span class="kpi-icon">🚨</span>
+            </div>
+            <div class="kpi-value highlight" id="kpi-anomaly-count">0</div>
+            <div class="kpi-subtitle">Z-Score Threshold &ge; 1.8&sigma;</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Projected Month-End Spend</span>
+              <span class="kpi-icon">📈</span>
+            </div>
+            <div class="kpi-value" id="kpi-forecast-spend">$0.00</div>
+            <div class="kpi-subtitle">Linear Velocity Model</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Quota Exhaustion Window</span>
+              <span class="kpi-icon">⏳</span>
+            </div>
+            <div class="kpi-value" id="kpi-exhaustion-days">30+ Days</div>
+            <div class="kpi-subtitle" id="kpi-exhaustion-status">Budget Trajectory Healthy</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Daily Burn Rate</span>
+              <span class="kpi-icon">🔥</span>
+            </div>
+            <div class="kpi-value" id="kpi-daily-burn">$0.00/day</div>
+            <div class="kpi-subtitle">Weighted 7-Day Moving Avg</div>
+          </div>
+        </section>
+
+        <!-- 30-Day Budget Projection SVG Chart -->
+        <section class="card" style="margin-top: 1.5rem;">
+          <div class="chart-header">
+            <h3>30-Day Predictive Token Budget Forecast</h3>
+            <span class="badge">95% Confidence Interval Cone</span>
+          </div>
+          <div id="forecast-chart-container" class="chart-container" style="height: 240px; padding: 1rem 0;">
+            <span style="color: var(--text-muted);">Generating budget forecast simulation...</span>
+          </div>
+        </section>
+
+        <!-- Active Anomaly Alerts Table -->
+        <section class="table-card" style="margin-top: 1.5rem;">
+          <div class="table-header">
+            <h3>Real-Time Statistical Anomaly Feed</h3>
+            <button id="btn-refresh-alerts" class="btn btn-secondary btn-sm"><span>🔄</span> Refresh Alerts</button>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Alert ID</th>
+                  <th>Severity</th>
+                  <th>Contract / Agent</th>
+                  <th>Model Tier</th>
+                  <th>Anomaly Type</th>
+                  <th>Z-Score</th>
+                  <th>Tokens / Cost</th>
+                  <th>Recommendation</th>
+                  <th>Status / Action</th>
+                </tr>
+              </thead>
+              <tbody id="alerts-tbody">
+                <tr><td colspan="9" class="text-center" style="padding: 1.5rem; color: var(--text-muted);">Scanning for telemetry anomalies...</td></tr>
+              </tbody>
+            </table>
           </div>
         </section>
       </div>
