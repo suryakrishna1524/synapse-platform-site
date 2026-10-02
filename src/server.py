@@ -67,6 +67,12 @@ class PlatformRequestHandler(BaseHTTPRequestHandler):
                 "plan": "Copilot Enterprise",
                 "permissions": permissions,
             })
+        elif path == "/api/audit-logs":
+            limit = int(query.get("limit", [50])[0])
+            user_f = query.get("user", [None])[0]
+            action_f = query.get("action", [None])[0]
+            logs = GLOBAL_STORE.get_audit_logs(limit=limit, user_filter=user_f, action_filter=action_f)
+            self._send_json(200, {"count": len(logs), "logs": logs})
         elif path == "/api/stream":
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -104,6 +110,13 @@ class PlatformRequestHandler(BaseHTTPRequestHandler):
         parsed_url = urllib.parse.urlparse(self.path)
         path = parsed_url.path
 
+        # Rate Limiting Check
+        client_ip = self.client_address[0] if self.client_address else "127.0.0.1"
+        allowed, remaining = GLOBAL_STORE.check_rate_limit(client_ip, max_requests=120, window_seconds=60.0)
+        if not allowed:
+            self._send_json(429, {"error": "Rate limit exceeded (120 requests/minute limit)", "retry_after_seconds": 60})
+            return
+
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length > 1_048_576:  # 1MB limit
             self._send_json(413, {"error": "Payload too large (1MB maximum)"})
@@ -136,7 +149,12 @@ class PlatformRequestHandler(BaseHTTPRequestHandler):
                 status=status,
                 description=description,
             )
+            GLOBAL_STORE.add_audit_log("METRIC_RECORDED", "agent", "system", status, f"Turn recorded for {contract_id}")
             self._send_json(201, {"status": "created", "record": record})
+        elif path == "/api/webhooks/test":
+            event_type = payload.get("event", "ALERT_TRIGGERED")
+            result = GLOBAL_STORE.trigger_webhook(event_type, payload)
+            self._send_json(200, result)
         elif path == "/api/admin/purge":
             role = self.headers.get("X-User-Role", "admin").lower()
             if role != "admin":

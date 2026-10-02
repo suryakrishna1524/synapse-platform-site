@@ -43,6 +43,18 @@
     footerLastSync: document.getElementById("footer-last-sync"),
     toastContainer: document.getElementById("toast-container"),
     systemStatusText: document.getElementById("system-status-text"),
+    tabDashboard: document.getElementById("tab-dashboard"),
+    tabAudit: document.getElementById("tab-audit"),
+    tabWebhooks: document.getElementById("tab-webhooks"),
+    viewDashboard: document.getElementById("view-dashboard"),
+    viewAudit: document.getElementById("view-audit"),
+    viewWebhooks: document.getElementById("view-webhooks"),
+    auditTbody: document.getElementById("audit-tbody"),
+    filterAuditUser: document.getElementById("filter-audit-user"),
+    filterAuditAction: document.getElementById("filter-audit-action"),
+    btnRefreshAudit: document.getElementById("btn-refresh-audit"),
+    btnTriggerWebhook: document.getElementById("btn-trigger-webhook"),
+    webhookEventSelect: document.getElementById("webhook-event-select"),
   };
 
   // Toast System
@@ -78,6 +90,7 @@
         // Received new metric event
         showToast(`[${data.contract_id}] ${data.agent_name} completed turn (${data.tokens} tokens)`, data.status === "error" ? "error" : "success");
         fetchDashboardData();
+        fetchAuditLogs();
       } catch (err) {
         // Ping or malformed
       }
@@ -88,11 +101,91 @@
     };
   }
 
+  // Tab Navigation
+  function switchTab(target) {
+    const tabs = [
+      { btn: el.tabDashboard, view: el.viewDashboard },
+      { btn: el.tabAudit, view: el.viewAudit },
+      { btn: el.tabWebhooks, view: el.viewWebhooks },
+    ];
+    tabs.forEach((t) => {
+      if (!t.btn || !t.view) return;
+      if (t.btn === target) {
+        t.btn.classList.add("active");
+        t.btn.style.borderColor = "var(--accent-primary)";
+        t.view.style.display = "block";
+      } else {
+        t.btn.classList.remove("active");
+        t.btn.style.borderColor = "var(--border-color)";
+        t.view.style.display = "none";
+      }
+    });
+    if (target === el.tabAudit) {
+      fetchAuditLogs();
+    }
+  }
+
+  // Audit Logs
+  async function fetchAuditLogs() {
+    try {
+      const userF = el.filterAuditUser ? el.filterAuditUser.value : "";
+      const actionF = el.filterAuditAction ? el.filterAuditAction.value : "all";
+      const res = await fetch(`/api/audit-logs?limit=50&user=${encodeURIComponent(userF)}&action=${encodeURIComponent(actionF)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const logs = data.logs || [];
+      if (!el.auditTbody) return;
+      if (logs.length === 0) {
+        el.auditTbody.innerHTML = `<tr><td colspan="7" class="text-center" style="padding: 1.5rem; color: var(--text-muted);">No audit logs matching filter criteria.</td></tr>`;
+        return;
+      }
+      el.auditTbody.innerHTML = logs.map((l) => `
+        <tr>
+          <td><strong>#${l.id}</strong></td>
+          <td><code>${l.action}</code></td>
+          <td>${l.user}</td>
+          <td><span class="badge">${l.role}</span></td>
+          <td><span class="tag tag-${l.status === "error" ? "error" : "success"}">${l.status}</span></td>
+          <td>${l.details}</td>
+          <td><small>${new Date(l.timestamp).toLocaleTimeString()}</small></td>
+        </tr>
+      `).join("");
+    } catch (err) {
+      console.error("Failed to fetch audit logs:", err);
+    }
+  }
+
+  // Webhook Test Dispatch
+  async function triggerTestWebhook() {
+    const ev = el.webhookEventSelect ? el.webhookEventSelect.value : "CRITICAL_SPEND_ALERT";
+    try {
+      const res = await fetch("/api/webhooks/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: ev,
+          source: "Synapse SDLC Webhook Engine",
+          timestamp: new Date().toISOString(),
+          environment: "production",
+          threshold_usd: 10.0,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        showToast(`Webhook Dispatched: ${data.event_type} (${data.status})`, "success");
+        fetchAuditLogs();
+      }
+    } catch (err) {
+      showToast("Failed to dispatch webhook alert", "error");
+    }
+  }
+
   // Initialization
   function init() {
     applyTheme(state.theme);
     bindEvents();
     fetchDashboardData();
+    fetchAuditLogs();
     initLiveStream();
   }
 
@@ -151,6 +244,15 @@
     el.btnCancelModal.addEventListener("click", () => {
       el.modalMetric.style.display = "none";
     });
+
+    if (el.tabDashboard) el.tabDashboard.addEventListener("click", () => switchTab(el.tabDashboard));
+    if (el.tabAudit) el.tabAudit.addEventListener("click", () => switchTab(el.tabAudit));
+    if (el.tabWebhooks) el.tabWebhooks.addEventListener("click", () => switchTab(el.tabWebhooks));
+
+    if (el.btnRefreshAudit) el.btnRefreshAudit.addEventListener("click", fetchAuditLogs);
+    if (el.filterAuditUser) el.filterAuditUser.addEventListener("input", fetchAuditLogs);
+    if (el.filterAuditAction) el.filterAuditAction.addEventListener("change", fetchAuditLogs);
+    if (el.btnTriggerWebhook) el.btnTriggerWebhook.addEventListener("click", triggerTestWebhook);
 
     el.formRecordMetric.addEventListener("submit", handleMetricSubmit);
 

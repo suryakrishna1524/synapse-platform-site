@@ -127,6 +127,37 @@ class TestPlatformServerAndStore(unittest.TestCase):
             first_chunk = res.readline().decode("utf-8")
             self.assertTrue(first_chunk.startswith("data: ") or first_chunk.startswith(":"))
 
+    def test_audit_logs_query_and_filtering(self):
+        url = f"http://127.0.0.1:{self.port}/api/audit-logs?limit=5"
+        with urllib.request.urlopen(url) as res:
+            self.assertEqual(res.status, 200)
+            data = json.loads(res.read().decode("utf-8"))
+            self.assertIn("logs", data)
+            self.assertGreater(len(data["logs"]), 0)
+            self.assertIn("action", data["logs"][0])
+
+    def test_webhook_alert_dispatch(self):
+        url = f"http://127.0.0.1:{self.port}/api/webhooks/test"
+        payload = json.dumps({
+            "event": "CRITICAL_SPEND_ALERT",
+            "threshold_usd": 100.0,
+            "current_spend": 12.50,
+        }).encode("utf-8")
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as res:
+            self.assertEqual(res.status, 200)
+            data = json.loads(res.read().decode("utf-8"))
+            self.assertEqual(data["status"], "delivered")
+            self.assertEqual(data["event_type"], "CRITICAL_SPEND_ALERT")
+
+    def test_rate_limiter_store_mechanism(self):
+        allowed, rem = self.store.check_rate_limit("test_client_1", max_requests=2, window_seconds=10.0)
+        self.assertTrue(allowed)
+        allowed, rem = self.store.check_rate_limit("test_client_1", max_requests=2, window_seconds=10.0)
+        self.assertTrue(allowed)
+        allowed, rem = self.store.check_rate_limit("test_client_1", max_requests=2, window_seconds=10.0)
+        self.assertFalse(allowed)
+
 
 if __name__ == "__main__":
     unittest.main()

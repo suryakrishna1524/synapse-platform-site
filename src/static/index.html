@@ -42,6 +42,13 @@
 
         <!-- Refresh Button -->
         <button id="btn-refresh" class="btn btn-secondary">
+          <!-- Tab Navigation -->
+          <div class="nav-tabs" style="display:flex; gap:0.5rem; margin-right:1rem;">
+            <button id="tab-dashboard" class="btn btn-secondary active">📊 Dashboard</button>
+            <button id="tab-audit" class="btn btn-secondary">🛡️ Audit Logs</button>
+            <button id="tab-webhooks" class="btn btn-secondary">🔔 Webhooks</button>
+          </div>
+
           <span>🔄</span> Refresh
         </button>
       </div>
@@ -49,113 +56,209 @@
 
     <!-- Main Content Area -->
     <main class="main-content">
-      <!-- KPI Stats Banner -->
-      <section class="kpi-grid">
-        <div class="kpi-card">
-          <div class="kpi-header">
-            <span class="kpi-title">Total Invocations</span>
-            <span class="kpi-icon">🚀</span>
-          </div>
-          <div class="kpi-value" id="kpi-total-runs">--</div>
-          <div class="kpi-subtitle"><span class="trend-up" id="kpi-success-rate">98.6%</span> Success Rate</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-header">
-            <span class="kpi-title">Tokens Consumed</span>
-            <span class="kpi-icon">📊</span>
-          </div>
-          <div class="kpi-value" id="kpi-total-tokens">--</div>
-          <div class="kpi-subtitle">Across 14 Agent Roles</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-header">
-            <span class="kpi-title">Total Spend (USD)</span>
-            <span class="kpi-icon">💰</span>
-          </div>
-          <div class="kpi-value highlight" id="kpi-total-spend">$--</div>
-          <div class="kpi-subtitle">Enterprise Quota Plan</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-header">
-            <span class="kpi-title">Avg Turn Duration</span>
-            <span class="kpi-icon">⏱️</span>
-          </div>
-          <div class="kpi-value" id="kpi-avg-duration">--s</div>
-          <div class="kpi-subtitle">Fast Async Execution</div>
-        </div>
-      </section>
-
-      <!-- Charts Section -->
-      <section class="charts-grid">
-        <div class="chart-card">
-          <div class="chart-header">
-            <h3>Token Distribution by Model Tier</h3>
-            <span class="badge">Live Aggregations</span>
-          </div>
-          <div class="chart-body" id="model-chart-container">
-            <!-- Native SVG Bar Chart dynamically injected here -->
-          </div>
-        </div>
-
-        <div class="chart-card">
-          <div class="chart-header">
-            <h3>Cost vs Duration Progression</h3>
-            <span class="badge">Per-Agent Metrics</span>
-          </div>
-          <div class="chart-body" id="timeline-chart-container">
-            <!-- Native SVG Timeline / Line Chart dynamically injected here -->
-          </div>
-        </div>
-      </section>
-
-      <!-- Interactive Data Table & Controls -->
-      <section class="table-section">
-        <div class="table-controls-bar">
-          <div class="filter-group">
-            <input type="text" id="filter-search" class="control-input" placeholder="Search agent or contract ID...">
-            <select id="filter-status" class="control-select">
-              <option value="all">All Statuses</option>
-              <option value="success">Success</option>
-              <option value="warning">Warning</option>
-              <option value="error">Error</option>
-            </select>
+      <!-- VIEW 1: Main Dashboard -->
+      <div id="view-dashboard" class="view-panel">
+        <!-- KPI Stats Banner -->
+        <section class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Total Invocations</span>
+              <span class="kpi-icon">🚀</span>
+            </div>
+            <div class="kpi-value" id="kpi-total-runs">--</div>
+            <div class="kpi-subtitle"><span class="trend-up" id="kpi-success-rate">98.6%</span> Success Rate</div>
           </div>
 
-          <div class="action-group">
-            <button id="btn-export-csv" class="btn btn-secondary">📥 Export CSV</button>
-            <button id="btn-export-json" class="btn btn-secondary">📥 Export JSON</button>
-            <button id="btn-add-metric" class="btn btn-primary">➕ Record Metric</button>
-            <button id="btn-purge-data" class="btn btn-danger" style="display:none;">🗑️ Purge</button>
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Tokens Consumed</span>
+              <span class="kpi-icon">📊</span>
+            </div>
+            <div class="kpi-value" id="kpi-total-tokens">--</div>
+            <div class="kpi-subtitle">Across 14 Agent Roles</div>
           </div>
-        </div>
 
-        <!-- Telemetry Table -->
-        <div class="table-container">
-          <table class="data-table" id="telemetry-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Contract ID</th>
-                <th>Agent Name</th>
-                <th>Model</th>
-                <th>Tokens</th>
-                <th>Cost (USD)</th>
-                <th>Duration</th>
-                <th>Status</th>
-                <th>Timestamp</th>
-              </tr>
-            </thead>
-            <tbody id="telemetry-tbody">
-              <tr>
-                <td colspan="9" class="text-center">Loading telemetry records...</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Total Spend (USD)</span>
+              <span class="kpi-icon">💰</span>
+            </div>
+            <div class="kpi-value highlight" id="kpi-total-spend">$--</div>
+            <div class="kpi-subtitle">Enterprise Quota Plan</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Avg Turn Duration</span>
+              <span class="kpi-icon">⏱️</span>
+            </div>
+            <div class="kpi-value" id="kpi-avg-duration">--s</div>
+            <div class="kpi-subtitle">Fast Async Execution</div>
+          </div>
+        </section>
+
+        <!-- Charts Section -->
+        <section class="charts-grid">
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Token Distribution by Model Tier</h3>
+              <span class="badge">Live Aggregations</span>
+            </div>
+            <div class="chart-body" id="model-chart-container">
+              <!-- Native SVG Bar Chart dynamically injected here -->
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Cost vs Duration Progression</h3>
+              <span class="badge">Per-Agent Metrics</span>
+            </div>
+            <div class="chart-body" id="timeline-chart-container">
+              <!-- Native SVG Timeline / Line Chart dynamically injected here -->
+            </div>
+          </div>
+        </section>
+
+        <!-- Interactive Data Table & Controls -->
+        <section class="table-section">
+          <div class="table-controls-bar">
+            <div class="filter-group">
+              <input type="text" id="filter-search" class="control-input" placeholder="Search agent or contract ID...">
+              <select id="filter-status" class="control-select">
+                <option value="all">All Statuses</option>
+                <option value="success">Success</option>
+                <option value="warning">Warning</option>
+                <option value="error">Error</option>
+              </select>
+            </div>
+
+            <div class="action-group">
+              <button id="btn-export-csv" class="btn btn-secondary">📥 Export CSV</button>
+              <button id="btn-export-json" class="btn btn-secondary">📥 Export JSON</button>
+              <button id="btn-add-metric" class="btn btn-primary">➕ Record Metric</button>
+              <button id="btn-purge-data" class="btn btn-danger" style="display:none;">🗑️ Purge</button>
+            </div>
+          </div>
+
+          <!-- Telemetry Table -->
+          <div class="table-container">
+            <table class="data-table" id="telemetry-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Contract ID</th>
+                  <th>Agent Name</th>
+                  <th>Model</th>
+                  <th>Tokens</th>
+                  <th>Cost (USD)</th>
+                  <th>Duration</th>
+                  <th>Status</th>
+                  <th>Timestamp</th>
+                </tr>
+              </thead>
+              <tbody id="telemetry-tbody">
+                <tr>
+                  <td colspan="9" class="text-center">Loading telemetry records...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- VIEW 2: Audit Logs -->
+      <div id="view-audit" class="view-panel" style="display:none;">
+        <section class="table-section">
+          <div class="table-controls-bar">
+            <h3>Enterprise RBAC & Security Audit Trail</h3>
+            <div class="filter-group">
+              <input type="text" id="filter-audit-user" class="control-input" placeholder="Filter by user...">
+              <select id="filter-audit-action" class="control-select">
+                <option value="all">All Actions</option>
+                <option value="WORKSPACE_INIT">WORKSPACE_INIT</option>
+                <option value="AGENT_DISPATCH">AGENT_DISPATCH</option>
+                <option value="METRIC_RECORDED">METRIC_RECORDED</option>
+                <option value="SECURITY_AUDIT">SECURITY_AUDIT</option>
+                <option value="EXPORT_TELEMETRY">EXPORT_TELEMETRY</option>
+                <option value="WEBHOOK_DISPATCH">WEBHOOK_DISPATCH</option>
+              </select>
+              <button id="btn-refresh-audit" class="btn btn-secondary">🔄 Refresh Logs</button>
+            </div>
+          </div>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Action</th>
+                  <th>User</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Details</th>
+                  <th>Timestamp</th>
+                </tr>
+              </thead>
+              <tbody id="audit-tbody">
+                <tr><td colspan="7" class="text-center">Loading audit logs...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- VIEW 3: Webhooks & Security -->
+      <div id="view-webhooks" class="view-panel" style="display:none;">
+        <section class="charts-grid">
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Real-Time Webhook Alerting</h3>
+              <span class="badge">Outbound Dispatcher</span>
+            </div>
+            <div style="padding: 1rem 0; display: flex; flex-direction: column; gap: 1rem;">
+              <p style="color: var(--text-secondary); font-size: 0.9rem;">
+                Dispatch simulated live alert webhooks to external endpoints (Slack, PagerDuty, Jira, SIEM) on critical token thresholds.
+              </p>
+              <div class="form-group">
+                <label>Alert Trigger Event:</label>
+                <select id="webhook-event-select" class="control-select">
+                  <option value="CRITICAL_SPEND_ALERT">CRITICAL_SPEND_ALERT (Spend > $10.00)</option>
+                  <option value="RATE_LIMIT_WARNING">RATE_LIMIT_WARNING (Burst Traffic Spike)</option>
+                  <option value="SECURITY_GUARD_TRIGGERED">SECURITY_GUARD_TRIGGERED (Secret/Destructive Guard)</option>
+                </select>
+              </div>
+              <button id="btn-trigger-webhook" class="btn btn-primary" style="align-self: flex-start;">
+                🚀 Dispatch Test Webhook
+              </button>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Security & Rate Limiter Health</h3>
+              <span class="badge">Active Policy</span>
+            </div>
+            <div style="padding: 1rem 0; display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.875rem;">
+              <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
+                <span>Sliding Window Rate Limit:</span>
+                <strong style="color: var(--success);">120 req / minute</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
+                <span>Path Traversal Guard:</span>
+                <strong style="color: var(--success);">Active (403 Barrier)</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
+                <span>CSV Injection Defense:</span>
+                <strong style="color: var(--success);">Active (Formula Prefixing)</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span>Max Payload Clamp:</span>
+                <strong style="color: var(--accent-primary);">1 MB Strict</strong>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
     </main>
 
     <!-- Modal: Record New Metric -->

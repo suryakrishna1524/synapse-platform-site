@@ -13,13 +13,18 @@ class TelemetryStore:
     """Thread-safe storage and querying of SDLC telemetry events and metrics."""
 
     MAX_RECORDS = 5000
+    MAX_AUDIT_LOGS = 2000
 
     def __init__(self):
         self._lock = threading.Lock()
         self._records: List[Dict[str, Any]] = []
+        self._audit_logs: List[Dict[str, Any]] = []
+        self._rate_limits: Dict[str, List[float]] = {}
         self._subscribers: List[queue.Queue] = []
         self._id_counter = 1
+        self._audit_id_counter = 1
         self._seed_initial_data()
+        self._seed_initial_audit_logs()
 
     def _seed_initial_data(self) -> None:
         """Populates realistic seed telemetry to enable instant interactive visualization."""
@@ -193,6 +198,88 @@ class TelemetryStore:
             count = len(self._records)
             self._records.clear()
             return count
+
+    def _seed_initial_audit_logs(self) -> None:
+        """Seeds initial audit events."""
+        seed_audit = [
+            ("WORKSPACE_INIT", "developer@synapse-sdlc.dev", "admin", "success", "Initialized Synapse SDLC Copilot Enterprise Workspace"),
+            ("AGENT_DISPATCH", "orchestrator", "system", "success", "Dispatched AC-000 Ticket Analyzer"),
+            ("PHASE_TRANSITION", "orchestrator", "system", "success", "Advanced to Phase 2: Design Architect"),
+            ("SECURITY_AUDIT", "critic@synapse-sdlc.dev", "operator", "success", "Destructive command filter audit passed"),
+            ("EXPORT_TELEMETRY", "developer@synapse-sdlc.dev", "admin", "success", "Exported metrics report (CSV)"),
+        ]
+        now = time.time()
+        for idx, (action, user, role, status, details) in enumerate(seed_audit):
+            self._audit_logs.append({
+                "id": self._audit_id_counter,
+                "action": action,
+                "user": user,
+                "role": role,
+                "status": status,
+                "details": details,
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - ((len(seed_audit) - idx) * 400))),
+            })
+            self._audit_id_counter += 1
+
+    def add_audit_log(self, action: str, user: str, role: str, status: str = "success", details: str = "") -> Dict[str, Any]:
+        """Thread-safely appends an immutable security audit event."""
+        with self._lock:
+            entry = {
+                "id": self._audit_id_counter,
+                "action": str(action).strip().upper(),
+                "user": str(user).strip() or "anonymous",
+                "role": str(role).strip().lower(),
+                "status": str(status).strip().lower(),
+                "details": self._sanitize_text(details),
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+            self._audit_id_counter += 1
+            self._audit_logs.append(entry)
+            if len(self._audit_logs) > self.MAX_AUDIT_LOGS:
+                self._audit_logs = self._audit_logs[-self.MAX_AUDIT_LOGS:]
+            return entry
+
+    def get_audit_logs(self, limit: int = 50, user_filter: Optional[str] = None, action_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self._lock:
+            results = list(self._audit_logs)
+        if user_filter:
+            uf = user_filter.lower().strip()
+            results = [r for r in results if uf in r["user"].lower()]
+        if action_filter and action_filter.lower() != "all":
+            af = action_filter.upper().strip()
+            results = [r for r in results if r["action"] == af]
+        results.reverse()
+        return results[:limit]
+
+    def check_rate_limit(self, client_id: str, max_requests: int = 100, window_seconds: float = 60.0) -> Tuple[bool, int]:
+        """Sliding-window rate limiter per client IP / key."""
+        now = time.time()
+        with self._lock:
+            history = self._rate_limits.setdefault(client_id, [])
+            # Prune timestamps outside window
+            cutoff = now - window_seconds
+            self._rate_limits[client_id] = [t for t in history if t > cutoff]
+            current_count = len(self._rate_limits[client_id])
+            if current_count >= max_requests:
+                return False, max_requests - current_count
+            self._rate_limits[client_id].append(now)
+            return True, max_requests - (current_count + 1)
+
+    def trigger_webhook(self, event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Simulates enterprise webhook event dispatch."""
+        self.add_audit_log(
+            action=f"WEBHOOK_{event_type.upper()}",
+            user="webhook-dispatcher",
+            role="system",
+            status="dispatched",
+            details=f"Dispatched webhook for {event_type}",
+        )
+        return {
+            "status": "delivered",
+            "event_type": event_type,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "payload_size_bytes": len(json.dumps(payload)),
+        }
 
     @staticmethod
     def _sanitize_text(text: str) -> str:
