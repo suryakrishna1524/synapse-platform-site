@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Synapse SDLC — Enterprise Telemetry & Observability Hub</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Navigation Header -->
+    <header class="top-nav">
+      <div class="nav-brand">
+        <div class="brand-logo">⚡</div>
+        <div>
+          <h1>Synapse SDLC</h1>
+          <span class="brand-subtitle">Enterprise Telemetry & Observability Platform</span>
+        </div>
+      </div>
+      
+      <div class="nav-actions">
+        <!-- Live Status Pill -->
+        <div class="status-indicator">
+          <span class="status-dot pulse"></span>
+          <span id="system-status-text">Live: Ready</span>
+        </div>
+
+        <!-- Role Selector -->
+        <div class="role-selector-wrap">
+          <label for="role-select">Role:</label>
+          <select id="role-select" class="control-select">
+            <option value="admin" selected>Admin (Full Access)</option>
+            <option value="operator">Operator (Read/Write)</option>
+            <option value="viewer">Viewer (Read Only)</option>
+          </select>
+        </div>
+
+        <!-- Theme Toggle -->
+        <button id="theme-toggle" class="btn-icon" title="Toggle Light/Dark Theme">
+          <span id="theme-icon">☀️</span>
+        </button>
+
+        <!-- Refresh Button -->
+        <button id="btn-refresh" class="btn btn-secondary">
+          <span>🔄</span> Refresh
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- KPI Stats Banner -->
+      <section class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Total Invocations</span>
+            <span class="kpi-icon">🚀</span>
+          </div>
+          <div class="kpi-value" id="kpi-total-runs">--</div>
+          <div class="kpi-subtitle"><span class="trend-up" id="kpi-success-rate">98.6%</span> Success Rate</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Tokens Consumed</span>
+            <span class="kpi-icon">📊</span>
+          </div>
+          <div class="kpi-value" id="kpi-total-tokens">--</div>
+          <div class="kpi-subtitle">Across 14 Agent Roles</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Total Spend (USD)</span>
+            <span class="kpi-icon">💰</span>
+          </div>
+          <div class="kpi-value highlight" id="kpi-total-spend">$--</div>
+          <div class="kpi-subtitle">Enterprise Quota Plan</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Avg Turn Duration</span>
+            <span class="kpi-icon">⏱️</span>
+          </div>
+          <div class="kpi-value" id="kpi-avg-duration">--s</div>
+          <div class="kpi-subtitle">Fast Async Execution</div>
+        </div>
+      </section>
+
+      <!-- Charts Section -->
+      <section class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Token Distribution by Model Tier</h3>
+            <span class="badge">Live Aggregations</span>
+          </div>
+          <div class="chart-body" id="model-chart-container">
+            <!-- Native SVG Bar Chart dynamically injected here -->
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Cost vs Duration Progression</h3>
+            <span class="badge">Per-Agent Metrics</span>
+          </div>
+          <div class="chart-body" id="timeline-chart-container">
+            <!-- Native SVG Timeline / Line Chart dynamically injected here -->
+          </div>
+        </div>
+      </section>
+
+      <!-- Interactive Data Table & Controls -->
+      <section class="table-section">
+        <div class="table-controls-bar">
+          <div class="filter-group">
+            <input type="text" id="filter-search" class="control-input" placeholder="Search agent or contract ID...">
+            <select id="filter-status" class="control-select">
+              <option value="all">All Statuses</option>
+              <option value="success">Success</option>
+              <option value="warning">Warning</option>
+              <option value="error">Error</option>
+            </select>
+          </div>
+
+          <div class="action-group">
+            <button id="btn-export-csv" class="btn btn-secondary">📥 Export CSV</button>
+            <button id="btn-export-json" class="btn btn-secondary">📥 Export JSON</button>
+            <button id="btn-add-metric" class="btn btn-primary">➕ Record Metric</button>
+            <button id="btn-purge-data" class="btn btn-danger" style="display:none;">🗑️ Purge</button>
+          </div>
+        </div>
+
+        <!-- Telemetry Table -->
+        <div class="table-container">
+          <table class="data-table" id="telemetry-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Contract ID</th>
+                <th>Agent Name</th>
+                <th>Model</th>
+                <th>Tokens</th>
+                <th>Cost (USD)</th>
+                <th>Duration</th>
+                <th>Status</th>
+                <th>Timestamp</th>
+              </tr>
+            </thead>
+            <tbody id="telemetry-tbody">
+              <tr>
+                <td colspan="9" class="text-center">Loading telemetry records...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <!-- Modal: Record New Metric -->
+    <div id="modal-metric" class="modal-backdrop" style="display: none;">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3>Record Agent Turn Metric</h3>
+          <button id="modal-close" class="btn-close">&times;</button>
+        </div>
+        <form id="form-record-metric">
+          <div class="form-group">
+            <label>Agent Contract ID:</label>
+            <select id="form-contract-id" class="control-select" required>
+              <option value="AC-ORCH">AC-ORCH (Synapse Master Orchestrator)</option>
+              <option value="AC-000">AC-000 (Ticket Analyzer)</option>
+              <option value="AC-001">AC-001 (Problem Decomposer)</option>
+              <option value="AC-002">AC-002 (Design Architect)</option>
+              <option value="AC-002A">AC-002A (Design Critic)</option>
+              <option value="AC-003A">AC-003A (Scaffolder)</option>
+              <option value="AC-003B">AC-003B (Code Builder)</option>
+              <option value="AC-003C">AC-003C (Targeted Fixer)</option>
+              <option value="AC-004">AC-004 (Requirement Verifier)</option>
+              <option value="AC-005">AC-005 (Risk Critic)</option>
+              <option value="AC-006">AC-006 (Automated Test Engineer)</option>
+              <option value="AC-007">AC-007 (Documentation Engine)</option>
+              <option value="AC-008">AC-008 (IaC & DevOps Specialist)</option>
+              <option value="AC-009">AC-009 (Automated Code Reviewer)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Model Engine:</label>
+            <select id="form-model" class="control-select" required>
+              <option value="Claude Sonnet 5">Claude Sonnet 5 (Reasoning Tier)</option>
+              <option value="GPT-5.3-Codex">GPT-5.3-Codex (Coding Tier)</option>
+              <option value="Claude Haiku 4.5">Claude Haiku 4.5 (Ingestion Tier)</option>
+              <option value="Gemini 3.8 Flash">Gemini 3.8 Flash</option>
+              <option value="GPT-4o">GPT-4o</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tokens Consumed:</label>
+              <input type="number" id="form-tokens" class="control-input" value="2500" min="1" required>
+            </div>
+            <div class="form-group">
+              <label>Duration (seconds):</label>
+              <input type="number" id="form-duration" class="control-input" step="0.1" value="1.5" min="0.01" required>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Execution Status:</label>
+            <select id="form-status" class="control-select">
+              <option value="success" selected>Success</option>
+              <option value="warning">Warning</option>
+              <option value="error">Error</option>
+            </select>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" id="btn-cancel-modal" class="btn btn-secondary">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Metric</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div>Synapse SDLC Platform v1.0.0 &bull; Multi-Agent Software Delivery Framework</div>
+      <div id="footer-last-sync">Synchronized: Live</div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
