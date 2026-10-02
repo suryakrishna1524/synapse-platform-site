@@ -1,0 +1,79 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "py .github/hooks/observability-hook.py",
+        "timeout": 15
+      },
+      {
+        "type": "command",
+        "command": "py .github/hooks/telemetry-hook.py",
+        "timeout": 15
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "py .github/hooks/prompt-guard.py",
+        "timeout": 10
+      },
+      {
+        "type": "command",
+        "command": "py .github/hooks/telemetry-hook.py",
+        "timeout": 15
+      }
+    ],
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "py .github/hooks/guard-destructive.py",
+        "timeout": 10
+      },
+      {
+        "type": "command",
+        "command": "py .github/hooks/guard-secrets.py",
+        "timeout": 10
+      },
+      {
+        "type": "command",
+        "command": "py .github/hooks/telemetry-hook.py",
+        "timeout": 15
+      }
+    ],
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "py .github/hooks/guard-secrets.py",
+        "timeout": 10
+      },
+      {
+        "type": "command",
+        "command": "py .github/hooks/quality-lint.py",
+        "timeout": 30
+      },
+      {
+        "type": "command",
+        "command": "py .github/hooks/telemetry-hook.py",
+        "timeout": 15
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "py .github/hooks/session-memory.py",
+        "timeout": 15
+      },
+      {
+        "type": "command",
+        "command": "py .github/hooks/observability-hook.py",
+        "timeout": 15
+      },
+      {
+        "type": "command",
+        "command": "py .github/hooks/telemetry-hook.py",
+        "timeout": 15
+      }
+    ]
+  }
+}
