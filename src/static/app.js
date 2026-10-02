@@ -1,6 +1,6 @@
 /**
  * Synapse SDLC — Reactive Frontend Application Engine
- * Native Vanilla JS with SVG Charting, Dynamic Themes, REST Sync & Client-Side Offline Engine
+ * Native Vanilla JS with SVG Charting, Dynamic Themes, REST Sync, Anomaly Detection & Budget Forecasting
  */
 
 (function () {
@@ -20,6 +20,7 @@
     { id: 10, contract_id: "AC-007", agent_name: "Documentation Engine", model: "Claude Haiku 4.5", tokens: 1850, cost_usd: 0.0033, duration_seconds: 0.9, status: "success", description: "Generated ADR and API documentation", timestamp: new Date(Date.now() - 900000).toISOString() },
     { id: 11, contract_id: "AC-008", agent_name: "IaC & DevOps Specialist", model: "Claude Sonnet 5", tokens: 2300, cost_usd: 0.0152, duration_seconds: 1.3, status: "success", description: "Constructed Dockerfile & Compose spec", timestamp: new Date(Date.now() - 600000).toISOString() },
     { id: 12, contract_id: "AC-009", agent_name: "Automated Code Reviewer", model: "Claude Sonnet 5", tokens: 3100, cost_usd: 0.0205, duration_seconds: 1.7, status: "success", description: "Clean code review: PR approved", timestamp: new Date(Date.now() - 300000).toISOString() },
+    { id: 13, contract_id: "AC-003B-ANOMALY", agent_name: "Heavy Synthesizer", model: "Claude Sonnet 5", tokens: 18500, cost_usd: 0.1221, duration_seconds: 9.4, status: "warning", description: "Simulated recursive AST expansion spike", timestamp: new Date(Date.now() - 60000).toISOString() },
   ];
 
   const seedAudit = [
@@ -33,14 +34,17 @@
 
   let clientMetrics = JSON.parse(JSON.stringify(seedMetrics));
   let clientAudit = JSON.parse(JSON.stringify(seedAudit));
-  let clientMetricsCounter = 13;
+  let clientMetricsCounter = 14;
   let clientAuditCounter = 7;
   let isStaticMode = false;
+  let acknowledgedAlerts = new Set();
 
   // Application State
   const state = {
     metrics: [],
     stats: {},
+    anomalies: [],
+    forecast: {},
     currentRole: "admin",
     theme: localStorage.getItem("synapse_theme") || "dark",
     searchFilter: "",
@@ -75,9 +79,11 @@
     toastContainer: document.getElementById("toast-container"),
     systemStatusText: document.getElementById("system-status-text"),
     tabDashboard: document.getElementById("tab-dashboard"),
+    tabAlerts: document.getElementById("tab-alerts"),
     tabAudit: document.getElementById("tab-audit"),
     tabWebhooks: document.getElementById("tab-webhooks"),
     viewDashboard: document.getElementById("view-dashboard"),
+    viewAlerts: document.getElementById("view-alerts"),
     viewAudit: document.getElementById("view-audit"),
     viewWebhooks: document.getElementById("view-webhooks"),
     auditTbody: document.getElementById("audit-tbody"),
@@ -86,6 +92,15 @@
     btnRefreshAudit: document.getElementById("btn-refresh-audit"),
     btnTriggerWebhook: document.getElementById("btn-trigger-webhook"),
     webhookEventSelect: document.getElementById("webhook-event-select"),
+    // Alerts & Forecast Elements
+    kpiAnomalyCount: document.getElementById("kpi-anomaly-count"),
+    kpiForecastSpend: document.getElementById("kpi-forecast-spend"),
+    kpiExhaustionDays: document.getElementById("kpi-exhaustion-days"),
+    kpiExhaustionStatus: document.getElementById("kpi-exhaustion-status"),
+    kpiDailyBurn: document.getElementById("kpi-daily-burn"),
+    forecastChartContainer: document.getElementById("forecast-chart-container"),
+    alertsTbody: document.getElementById("alerts-tbody"),
+    btnRefreshAlerts: document.getElementById("btn-refresh-alerts"),
   };
 
   // Toast System
@@ -138,6 +153,90 @@
     };
   }
 
+  // Calculate client-side statistical anomalies
+  function calculateClientAnomalies() {
+    if (clientMetrics.length < 3) return [];
+    const tokensList = clientMetrics.map((m) => m.tokens);
+    const durList = clientMetrics.map((m) => m.duration_seconds);
+
+    const avgTok = tokensList.reduce((a, b) => a + b, 0) / tokensList.length;
+    const varTok = tokensList.reduce((a, b) => a + Math.pow(b - avgTok, 2), 0) / tokensList.length;
+    const stdTok = Math.sqrt(varTok) || 1.0;
+
+    const avgDur = durList.reduce((a, b) => a + b, 0) / durList.length;
+    const varDur = durList.reduce((a, b) => a + Math.pow(b - avgDur, 2), 0) / durList.length;
+    const stdDur = Math.sqrt(varDur) || 1.0;
+
+    const anomalies = [];
+    clientMetrics.forEach((m) => {
+      const zTok = (m.tokens - avgTok) / stdTok;
+      const zDur = (m.duration_seconds - avgDur) / stdDur;
+      const isSpend = zTok >= 1.6;
+      const isLat = zDur >= 1.6;
+      const isErr = m.status === "error";
+
+      if (isSpend || isLat || isErr) {
+        anomalies.push({
+          alert_id: m.id,
+          contract_id: m.contract_id,
+          agent_name: m.agent_name,
+          model: m.model,
+          tokens: m.tokens,
+          cost_usd: m.cost_usd,
+          duration_seconds: m.duration_seconds,
+          severity: (zTok >= 2.2 || isErr) ? "CRITICAL" : "WARNING",
+          anomaly_type: isSpend ? "SPEND_SPIKE" : (isLat ? "LATENCY_SPIKE" : "EXECUTION_ERROR"),
+          z_score: +Math.max(zTok, zDur).toFixed(2),
+          acknowledged: acknowledgedAlerts.has(m.id),
+          timestamp: m.timestamp,
+          recommendation: isSpend ? "Review prompt context length" : (isLat ? "Optimize agent reasoning steps" : "Inspect error stack trace"),
+        });
+      }
+    });
+    return anomalies;
+  }
+
+  // Calculate client-side 30-day forecast
+  function calculateClientForecast() {
+    const totalSpend = clientMetrics.reduce((sum, m) => sum + m.cost_usd, 0);
+    const totalRuns = clientMetrics.length;
+    const avgCostPerRun = totalRuns > 0 ? (totalSpend / totalRuns) : 0.015;
+    const dailyBurnRate = +(avgCostPerRun * 20).toFixed(4);
+    const quotaUsd = 25.0;
+
+    const points = [];
+    let acc = +totalSpend.toFixed(4);
+    let exhaustionDay = null;
+
+    for (let d = 1; d <= 30; d++) {
+      acc = +(acc + dailyBurnRate).toFixed(4);
+      const upper = +(acc * (1 + 0.02 * d)).toFixed(4);
+      const lower = +(Math.max(0, acc * (1 - 0.02 * d))).toFixed(4);
+
+      if (acc >= quotaUsd && exhaustionDay === null) {
+        exhaustionDay = d;
+      }
+
+      points.push({
+        day: d,
+        projected_spend_usd: acc,
+        upper_bound_usd: upper,
+        lower_bound_usd: lower,
+      });
+    }
+
+    return {
+      current_spend_usd: +totalSpend.toFixed(4),
+      daily_burn_rate_usd: dailyBurnRate,
+      monthly_quota_usd: quotaUsd,
+      projected_month_end_spend_usd: points[points.length - 1]?.projected_spend_usd || 0,
+      quota_exhaustion_day: exhaustionDay,
+      days_until_exhaustion: exhaustionDay || 30,
+      recommended_action: exhaustionDay ? `Quota projected to exhaust in ${exhaustionDay} days` : "Budget trajectory healthy",
+      forecast_points: points,
+    };
+  }
+
   // Live SSE Stream Engine with Static Simulation Fallback
   function initLiveStream() {
     let sseWorking = false;
@@ -156,6 +255,7 @@
             showToast(`[${data.contract_id}] ${data.agent_name} completed turn (${data.tokens} tokens)`, data.status === "error" ? "error" : "success");
             fetchDashboardData();
             fetchAuditLogs();
+            fetchAlertsAndForecast();
           } catch (err) {}
         };
         es.onerror = () => {
@@ -222,6 +322,7 @@
       showToast(`[${selected.contract_id}] ${selected.agent_name} completed turn (${tokens.toLocaleString()} tokens)`, status);
       fetchDashboardData();
       fetchAuditLogs();
+      fetchAlertsAndForecast();
     }, 15000);
   }
 
@@ -229,6 +330,7 @@
   function switchTab(target) {
     const tabs = [
       { btn: el.tabDashboard, view: el.viewDashboard },
+      { btn: el.tabAlerts, view: el.viewAlerts },
       { btn: el.tabAudit, view: el.viewAudit },
       { btn: el.tabWebhooks, view: el.viewWebhooks },
     ];
@@ -246,7 +348,187 @@
     });
     if (target === el.tabAudit) {
       fetchAuditLogs();
+    } else if (target === el.tabAlerts) {
+      fetchAlertsAndForecast();
     }
+  }
+
+  // Anomaly & Forecast Fetching
+  async function fetchAlertsAndForecast() {
+    if (isStaticMode) {
+      state.anomalies = calculateClientAnomalies();
+      state.forecast = calculateClientForecast();
+      renderAlertsView();
+      return;
+    }
+
+    try {
+      const [anomRes, fcRes] = await Promise.all([
+        fetch("/api/alerts/anomalies"),
+        fetch("/api/forecast"),
+      ]);
+
+      if (anomRes.ok && fcRes.ok) {
+        const anomData = await anomRes.json();
+        state.anomalies = anomData.anomalies || [];
+        state.forecast = await fcRes.json();
+        renderAlertsView();
+      } else {
+        isStaticMode = true;
+        fetchAlertsAndForecast();
+      }
+    } catch (err) {
+      isStaticMode = true;
+      fetchAlertsAndForecast();
+    }
+  }
+
+  function renderAlertsView() {
+    const f = state.forecast || {};
+    const anoms = state.anomalies || [];
+
+    if (el.kpiAnomalyCount) el.kpiAnomalyCount.textContent = anoms.filter((a) => !a.acknowledged).length;
+    if (el.kpiForecastSpend) el.kpiForecastSpend.textContent = `$${(f.projected_month_end_spend_usd || 0).toFixed(2)}`;
+    if (el.kpiExhaustionDays) el.kpiExhaustionDays.textContent = f.quota_exhaustion_day ? `${f.quota_exhaustion_day} Days` : "30+ Days";
+    if (el.kpiExhaustionStatus) el.kpiExhaustionStatus.textContent = f.recommended_action || "Budget Trajectory Healthy";
+    if (el.kpiDailyBurn) el.kpiDailyBurn.textContent = `$${(f.daily_burn_rate_usd || 0).toFixed(4)}/day`;
+
+    // Render Table
+    if (el.alertsTbody) {
+      if (anoms.length === 0) {
+        el.alertsTbody.innerHTML = `<tr><td colspan="9" class="text-center" style="padding: 1.5rem; color: var(--text-muted);">Zero active anomalies detected across agent execution telemetry.</td></tr>`;
+      } else {
+        el.alertsTbody.innerHTML = anoms.map((a) => `
+          <tr>
+            <td><strong>#${a.alert_id}</strong></td>
+            <td><span class="tag tag-${a.severity === 'CRITICAL' ? 'error' : 'warning'}">${a.severity}</span></td>
+            <td><code>${a.contract_id}</code> (${a.agent_name})</td>
+            <td><small>${a.model}</small></td>
+            <td><strong>${a.anomaly_type}</strong></td>
+            <td><code>+${a.z_score}&sigma;</code></td>
+            <td>${a.tokens.toLocaleString()} tok ($${a.cost_usd.toFixed(4)})</td>
+            <td><small style="color: var(--text-secondary);">${a.recommendation}</small></td>
+            <td>
+              ${a.acknowledged 
+                ? '<span class="badge" style="background: rgba(16,185,129,0.2); color: var(--success);">Acknowledged</span>' 
+                : `<button class="btn btn-secondary btn-sm btn-ack-alert" data-alert-id="${a.alert_id}">Acknowledge</button>`}
+            </td>
+          </tr>
+        `).join("");
+
+        // Bind acknowledge clicks
+        document.querySelectorAll(".btn-ack-alert").forEach((btn) => {
+          btn.addEventListener("click", () => handleAcknowledgeAlert(parseInt(btn.getAttribute("data-alert-id"), 10)));
+        });
+      }
+    }
+
+    // Render Forecast Chart
+    renderForecastChart(f.forecast_points || []);
+  }
+
+  async function handleAcknowledgeAlert(alertId) {
+    if (isStaticMode) {
+      acknowledgedAlerts.add(alertId);
+      clientAudit.unshift({
+        id: clientAuditCounter++,
+        action: "ALERT_ACKNOWLEDGE",
+        user: "developer@synapse-sdlc.dev",
+        role: state.currentRole,
+        status: "success",
+        details: `Acknowledged anomaly alert for record #${alertId}`,
+        timestamp: new Date().toISOString(),
+      });
+      showToast(`Acknowledged alert #${alertId}`, "success");
+      fetchAlertsAndForecast();
+      fetchAuditLogs();
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/alerts/acknowledge", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Role": state.currentRole,
+        },
+        body: JSON.stringify({ alert_id: alertId, user: "developer@synapse-sdlc.dev" }),
+      });
+      if (res.ok) {
+        showToast(`Acknowledged alert #${alertId}`, "success");
+        fetchAlertsAndForecast();
+        fetchAuditLogs();
+      } else {
+        throw new Error("HTTP error");
+      }
+    } catch (err) {
+      acknowledgedAlerts.add(alertId);
+      showToast(`Acknowledged alert #${alertId}`, "success");
+      fetchAlertsAndForecast();
+    }
+  }
+
+  // Forecast SVG Chart Engine
+  function renderForecastChart(points) {
+    if (!el.forecastChartContainer || points.length === 0) return;
+    const chartWidth = 650;
+    const chartHeight = 220;
+    const maxVal = Math.max(...points.map((p) => p.upper_bound_usd), 25.0);
+    const stepX = (chartWidth - 80) / (points.length - 1);
+
+    const ptsProjected = points.map((p, idx) => ({
+      x: 40 + idx * stepX,
+      y: chartHeight - 35 - (p.projected_spend_usd / maxVal) * (chartHeight - 65),
+      spend: p.projected_spend_usd,
+      day: p.day,
+    }));
+
+    const ptsUpper = points.map((p, idx) => ({
+      x: 40 + idx * stepX,
+      y: chartHeight - 35 - (p.upper_bound_usd / maxVal) * (chartHeight - 65),
+    }));
+
+    const ptsLower = points.map((p, idx) => ({
+      x: 40 + idx * stepX,
+      y: chartHeight - 35 - (p.lower_bound_usd / maxVal) * (chartHeight - 65),
+    }));
+
+    // Build cone polygon
+    const upperPath = ptsUpper.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+    const lowerPath = ptsLower.reverse().map((p) => `L ${p.x} ${p.y}`).join(' ');
+    const coneD = `${upperPath} ${lowerPath} Z`;
+
+    // Line Path
+    const lineD = ptsProjected.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+
+    // Quota line (25 USD)
+    const quotaY = chartHeight - 35 - (25.0 / maxVal) * (chartHeight - 65);
+
+    let svg = `<svg viewBox="0 0 ${chartWidth} ${chartHeight}" style="width: 100%; height: 100%;">`;
+    
+    // Confidence Cone
+    svg += `<path d="${coneD}" fill="rgba(59, 130, 246, 0.15)" stroke="none"/>`;
+    
+    // Quota Threshold line
+    svg += `<line x1="40" y1="${quotaY}" x2="${chartWidth - 40}" y2="${quotaY}" stroke="#ef4444" stroke-dasharray="4" stroke-width="1.5"/>`;
+    svg += `<text x="${chartWidth - 38}" y="${quotaY + 4}" font-size="9" fill="#ef4444" font-weight="bold">Quota: $25.00</text>`;
+
+    // Main Forecast Line
+    svg += `<path d="${lineD}" fill="none" stroke="#3b82f6" stroke-width="3" stroke-linecap="round"/>`;
+
+    // Dots at days 5, 10, 15, 20, 25, 30
+    ptsProjected.filter((p) => p.day % 5 === 0 || p.day === 1).forEach((p) => {
+      svg += `
+        <circle cx="${p.x}" cy="${p.y}" r="4" fill="#3b82f6" stroke="var(--bg-card)" stroke-width="2">
+          <title>Day ${p.day}: $${p.spend.toFixed(2)}</title>
+        </circle>
+        <text x="${p.x}" y="${chartHeight - 12}" text-anchor="middle" font-size="8" fill="var(--text-secondary)">Day ${p.day}</text>
+        <text x="${p.x}" y="${p.y - 8}" text-anchor="middle" font-size="8" fill="var(--text-primary)">$${p.spend.toFixed(1)}</text>
+      `;
+    });
+
+    svg += `</svg>`;
+    el.forecastChartContainer.innerHTML = svg;
   }
 
   // Audit Logs
@@ -347,7 +629,6 @@
         throw new Error("HTTP error");
       }
     } catch (err) {
-      // Fallback
       clientAudit.unshift({
         id: clientAuditCounter++,
         action: `WEBHOOK_${ev.toUpperCase()}`,
@@ -368,12 +649,15 @@
     bindEvents();
     fetchDashboardData();
     fetchAuditLogs();
+    fetchAlertsAndForecast();
     initLiveStream();
 
     // Hash routing support
     const hash = window.location.hash;
     if (hash === "#audit" && el.tabAudit) {
       switchTab(el.tabAudit);
+    } else if (hash === "#alerts" && el.tabAlerts) {
+      switchTab(el.tabAlerts);
     } else if (hash === "#webhooks" && el.tabWebhooks) {
       switchTab(el.tabWebhooks);
     } else if (hash === "#record" && el.modalMetric) {
@@ -423,6 +707,13 @@
       showToast("Telemetry metrics refreshed", "info");
     });
 
+    if (el.btnRefreshAlerts) {
+      el.btnRefreshAlerts.addEventListener("click", () => {
+        fetchAlertsAndForecast();
+        showToast("Anomaly feed & budget forecast refreshed", "info");
+      });
+    }
+
     el.filterSearch.addEventListener("input", (e) => {
       state.searchFilter = e.target.value.toLowerCase();
       renderTable();
@@ -466,6 +757,7 @@
     });
 
     if (el.tabDashboard) el.tabDashboard.addEventListener("click", () => switchTab(el.tabDashboard));
+    if (el.tabAlerts) el.tabAlerts.addEventListener("click", () => switchTab(el.tabAlerts));
     if (el.tabAudit) el.tabAudit.addEventListener("click", () => switchTab(el.tabAudit));
     if (el.tabWebhooks) el.tabWebhooks.addEventListener("click", () => switchTab(el.tabWebhooks));
 
@@ -481,6 +773,7 @@
         if (isStaticMode) {
           clientMetrics = [];
           fetchDashboardData();
+          fetchAlertsAndForecast();
           showToast("Telemetry store purged", "warning");
           return;
         }
@@ -491,6 +784,7 @@
           });
           if (res.ok) {
             fetchDashboardData();
+            fetchAlertsAndForecast();
             showToast("Telemetry store purged", "warning");
           } else {
             alert("Error: Insufficient permissions to purge records.");
@@ -498,6 +792,7 @@
         } catch (err) {
           clientMetrics = [];
           fetchDashboardData();
+          fetchAlertsAndForecast();
           showToast("Telemetry store purged", "warning");
         }
       }
@@ -731,6 +1026,7 @@
       el.modalMetric.style.display = "none";
       showToast(`Recorded turn for ${contract} successfully`, "success");
       fetchDashboardData();
+      fetchAlertsAndForecast();
       fetchAuditLogs();
       return;
     }
@@ -749,6 +1045,7 @@
         el.modalMetric.style.display = "none";
         showToast(`Recorded turn for ${contract} successfully`, "success");
         fetchDashboardData();
+        fetchAlertsAndForecast();
       } else {
         throw new Error("HTTP Error");
       }
@@ -757,6 +1054,7 @@
       el.modalMetric.style.display = "none";
       showToast(`Recorded turn for ${contract} successfully`, "success");
       fetchDashboardData();
+      fetchAlertsAndForecast();
     }
   }
 

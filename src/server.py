@@ -73,6 +73,15 @@ class PlatformRequestHandler(BaseHTTPRequestHandler):
             action_f = query.get("action", [None])[0]
             logs = GLOBAL_STORE.get_audit_logs(limit=limit, user_filter=user_f, action_filter=action_f)
             self._send_json(200, {"count": len(logs), "logs": logs})
+        elif path == "/api/alerts/anomalies":
+            threshold_z = float(query.get("threshold_z", [1.8])[0])
+            anomalies = GLOBAL_STORE.detect_anomalies(threshold_z=threshold_z)
+            self._send_json(200, {"count": len(anomalies), "anomalies": anomalies})
+        elif path == "/api/forecast":
+            days = int(query.get("days", [30])[0])
+            quota = float(query.get("quota", [25.0])[0])
+            forecast = GLOBAL_STORE.get_budget_forecast(projected_days=days, monthly_quota_usd=quota)
+            self._send_json(200, forecast)
         elif path == "/api/stream":
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -155,6 +164,15 @@ class PlatformRequestHandler(BaseHTTPRequestHandler):
             event_type = payload.get("event", "ALERT_TRIGGERED")
             result = GLOBAL_STORE.trigger_webhook(event_type, payload)
             self._send_json(200, result)
+        elif path == "/api/alerts/acknowledge":
+            role = self.headers.get("X-User-Role", "operator").lower()
+            if role not in ("admin", "operator"):
+                self._send_json(403, {"error": "Forbidden: Requires Operator or Admin role"})
+                return
+            alert_id = int(payload.get("alert_id", 0))
+            user = payload.get("user", "operator@synapse-sdlc.dev")
+            GLOBAL_STORE.acknowledge_alert(alert_id, user, role)
+            self._send_json(200, {"status": "acknowledged", "alert_id": alert_id})
         elif path == "/api/admin/purge":
             role = self.headers.get("X-User-Role", "admin").lower()
             if role != "admin":

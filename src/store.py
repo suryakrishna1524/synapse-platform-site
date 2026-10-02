@@ -281,6 +281,117 @@ class TelemetryStore:
             "payload_size_bytes": len(json.dumps(payload)),
         }
 
+    def detect_anomalies(self, threshold_z: float = 1.8) -> List[Dict[str, Any]]:
+        """Statistical Z-score anomaly detector for token spend and latency spikes."""
+        import math
+        with self._lock:
+            if len(self._records) < 3:
+                return []
+            
+            acknowledged = getattr(self, "_acknowledged_alerts", set())
+            tokens_list = [r["tokens"] for r in self._records]
+            durations_list = [r["duration_seconds"] for r in self._records]
+
+            avg_tok = sum(tokens_list) / len(tokens_list)
+            var_tok = sum((x - avg_tok) ** 2 for x in tokens_list) / len(tokens_list)
+            std_tok = math.sqrt(var_tok) if var_tok > 0 else 1.0
+
+            avg_dur = sum(durations_list) / len(durations_list)
+            var_dur = sum((x - avg_dur) ** 2 for x in durations_list) / len(durations_list)
+            std_dur = math.sqrt(var_dur) if var_dur > 0 else 1.0
+
+            anomalies = []
+            for r in self._records:
+                z_tok = (r["tokens"] - avg_tok) / std_tok
+                z_dur = (r["duration_seconds"] - avg_dur) / std_dur
+                
+                is_spend_spike = z_tok >= threshold_z
+                is_latency_spike = z_dur >= threshold_z
+                is_error_anomaly = r["status"] == "error"
+
+                if is_spend_spike or is_latency_spike or is_error_anomaly:
+                    severity = "CRITICAL" if (z_tok >= 2.5 or is_error_anomaly) else "WARNING"
+                    anomaly_type = "SPEND_SPIKE" if is_spend_spike else ("LATENCY_SPIKE" if is_latency_spike else "EXECUTION_ERROR")
+                    
+                    anomalies.append({
+                        "alert_id": r["id"],
+                        "contract_id": r["contract_id"],
+                        "agent_name": r["agent_name"],
+                        "model": r["model"],
+                        "tokens": r["tokens"],
+                        "cost_usd": r["cost_usd"],
+                        "duration_seconds": r["duration_seconds"],
+                        "severity": severity,
+                        "anomaly_type": anomaly_type,
+                        "z_score": round(max(z_tok, z_dur), 2),
+                        "acknowledged": r["id"] in acknowledged,
+                        "timestamp": r["timestamp"],
+                        "recommendation": "Review prompt context length" if is_spend_spike else ("Optimize agent reasoning steps" if is_latency_spike else "Inspect error stack trace"),
+                    })
+
+            anomalies.reverse()
+            return anomalies
+
+    def acknowledge_alert(self, alert_id: int, user: str, role: str) -> bool:
+        """Acknowledges an anomaly alert and logs security audit trail."""
+        with self._lock:
+            if not hasattr(self, "_acknowledged_alerts"):
+                self._acknowledged_alerts = set()
+            self._acknowledged_alerts.add(alert_id)
+            self.add_audit_log(
+                action="ALERT_ACKNOWLEDGE",
+                user=user or "operator",
+                role=role or "operator",
+                status="success",
+                details=f"Acknowledged anomaly alert for record #{alert_id}",
+            )
+            return True
+
+    def get_budget_forecast(self, projected_days: int = 30, monthly_quota_usd: float = 25.0) -> Dict[str, Any]:
+        """Calculates 30-day predictive token spend velocity and quota exhaustion projections."""
+        with self._lock:
+            total_spend = sum(r["cost_usd"] for r in self._records)
+            total_runs = len(self._records)
+            if total_runs == 0:
+                daily_burn_rate = 0.50
+            else:
+                avg_cost_per_run = total_spend / total_runs
+                # Assume 20 automated SDLC runs per day baseline
+                daily_burn_rate = round(avg_cost_per_run * 20, 4)
+
+            forecast_points = []
+            accumulated = round(total_spend, 4)
+            exhaustion_day = None
+
+            for d in range(1, projected_days + 1):
+                accumulated = round(accumulated + daily_burn_rate, 4)
+                upper_bound = round(accumulated * (1 + (0.02 * d)), 4)
+                lower_bound = round(max(0.0, accumulated * (1 - (0.02 * d))), 4)
+
+                if accumulated >= monthly_quota_usd and exhaustion_day is None:
+                    exhaustion_day = d
+
+                forecast_points.append({
+                    "day": d,
+                    "projected_spend_usd": accumulated,
+                    "upper_bound_usd": upper_bound,
+                    "lower_bound_usd": lower_bound,
+                })
+
+            days_remaining = (exhaustion_day or projected_days) if exhaustion_day else projected_days
+            recommended_action = "Budget trajectory optimal" if not exhaustion_day else f"Quota projected to exhaust in {exhaustion_day} days. Scale model tier to Claude Haiku."
+
+            return {
+                "current_spend_usd": round(total_spend, 4),
+                "daily_burn_rate_usd": daily_burn_rate,
+                "monthly_quota_usd": monthly_quota_usd,
+                "projected_month_end_spend_usd": forecast_points[-1]["projected_spend_usd"] if forecast_points else 0.0,
+                "quota_exhaustion_day": exhaustion_day,
+                "days_until_exhaustion": days_remaining,
+                "recommended_action": recommended_action,
+                "forecast_points": forecast_points,
+            }
+
     @staticmethod
     def _sanitize_text(text: str) -> str:
         if not text:
