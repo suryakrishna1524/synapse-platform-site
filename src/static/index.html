@@ -40,15 +40,15 @@
           <span id="theme-icon">☀️</span>
         </button>
 
+        <!-- Tab Navigation -->
+        <div class="nav-tabs" style="display:flex; gap:0.5rem;">
+          <button id="tab-dashboard" class="btn btn-primary">📊 Dashboard</button>
+          <button id="tab-audit" class="btn btn-secondary">🛡️ Audit Logs</button>
+          <button id="tab-webhooks" class="btn btn-secondary">🔔 Webhooks</button>
+        </div>
+
         <!-- Refresh Button -->
         <button id="btn-refresh" class="btn btn-secondary">
-          <!-- Tab Navigation -->
-          <div class="nav-tabs" style="display:flex; gap:0.5rem; margin-right:1rem;">
-            <button id="tab-dashboard" class="btn btn-secondary active">📊 Dashboard</button>
-            <button id="tab-audit" class="btn btn-secondary">🛡️ Audit Logs</button>
-            <button id="tab-webhooks" class="btn btn-secondary">🔔 Webhooks</button>
-          </div>
-
           <span>🔄</span> Refresh
         </button>
       </div>
@@ -57,7 +57,7 @@
     <!-- Main Content Area -->
     <main class="main-content">
       <!-- VIEW 1: Main Dashboard -->
-      <div id="view-dashboard" class="view-panel">
+      <div id="view-dashboard" class="view-panel" style="display:block;">
         <!-- KPI Stats Banner -->
         <section class="kpi-grid">
           <div class="kpi-card">

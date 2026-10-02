@@ -187,6 +187,16 @@
     fetchDashboardData();
     fetchAuditLogs();
     initLiveStream();
+
+    // Hash routing support for direct view activation
+    const hash = window.location.hash;
+    if (hash === "#audit" && el.tabAudit) {
+      switchTab(el.tabAudit);
+    } else if (hash === "#webhooks" && el.tabWebhooks) {
+      switchTab(el.tabWebhooks);
+    } else if (hash === "#record" && el.modalMetric) {
+      el.modalMetric.style.display = "flex";
+    }
   }
 
   // Theme Management
