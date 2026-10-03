@@ -1,6 +1,6 @@
 /**
- * Synapse SDLC — Reactive Frontend Application Engine
- * Native Vanilla JS with SVG Charting, Dynamic Themes, REST Sync, Anomaly Detection & Budget Forecasting
+ * Synapse SDLC — Reactive Frontend Application Engine (v3.0.0)
+ * Full Suite: Metrics, Anomaly Alerts, Budget Forecasting, SLA Predictor, Circuit Breaker & Multi-Tenant Team Workspaces
  */
 
 (function () {
@@ -30,14 +30,22 @@
     { id: 4, action: "SECURITY_AUDIT", user: "critic@synapse-sdlc.dev", role: "operator", status: "success", details: "Destructive command filter audit passed", timestamp: new Date(Date.now() - 2700000).toISOString() },
     { id: 5, action: "EXPORT_TELEMETRY", user: "developer@synapse-sdlc.dev", role: "admin", status: "success", details: "Exported metrics report (CSV)", timestamp: new Date(Date.now() - 600000).toISOString() },
     { id: 6, action: "WEBHOOK_CRITICAL_SPEND_ALERT", user: "webhook-dispatcher", role: "system", status: "dispatched", details: "Dispatched webhook for CRITICAL_SPEND_ALERT", timestamp: new Date(Date.now() - 120000).toISOString() },
+    { id: 7, action: "SLA_PREDICTOR_EVAL", user: "sla-monitor", role: "system", status: "success", details: "P95 SLA compliance score: 98.8%", timestamp: new Date(Date.now() - 60000).toISOString() },
   ];
 
   let clientMetrics = JSON.parse(JSON.stringify(seedMetrics));
   let clientAudit = JSON.parse(JSON.stringify(seedAudit));
   let clientMetricsCounter = 14;
-  let clientAuditCounter = 7;
+  let clientAuditCounter = 8;
   let isStaticMode = false;
   let acknowledgedAlerts = new Set();
+  let clientCircuitBreaker = { state: "CLOSED", tripped_count: 0, auto_throttle: false, reason: "All operational metrics within acceptable bounds" };
+  let clientTeams = [
+    { id: "team-core", name: "Core Platform & Engine", allocated_tokens: 100000, spent_tokens: 38400, spent_usd: 0.182, tier: "Claude Sonnet 5", utilization_pct: 38.4, status: "active" },
+    { id: "team-secops", name: "Security & Compliance Ops", allocated_tokens: 50000, spent_tokens: 14200, spent_usd: 0.068, tier: "Claude Sonnet 5", utilization_pct: 28.4, status: "active" },
+    { id: "team-devops", name: "IaC & Kubernetes DevOps", allocated_tokens: 75000, spent_tokens: 22100, spent_usd: 0.105, tier: "GPT-5.3-Codex", utilization_pct: 29.5, status: "active" },
+    { id: "team-frontend", name: "Frontend & Reactive UI", allocated_tokens: 60000, spent_tokens: 19500, spent_usd: 0.093, tier: "Claude Haiku 4.5", utilization_pct: 32.5, status: "active" },
+  ];
 
   // Application State
   const state = {
@@ -45,6 +53,9 @@
     stats: {},
     anomalies: [],
     forecast: {},
+    sla: {},
+    teams: [],
+    circuitBreaker: clientCircuitBreaker,
     currentRole: "admin",
     theme: localStorage.getItem("synapse_theme") || "dark",
     searchFilter: "",
@@ -78,21 +89,28 @@
     footerLastSync: document.getElementById("footer-last-sync"),
     toastContainer: document.getElementById("toast-container"),
     systemStatusText: document.getElementById("system-status-text"),
+    // Navigation Tabs
     tabDashboard: document.getElementById("tab-dashboard"),
     tabAlerts: document.getElementById("tab-alerts"),
+    tabSla: document.getElementById("tab-sla"),
+    tabTeams: document.getElementById("tab-teams"),
     tabAudit: document.getElementById("tab-audit"),
     tabWebhooks: document.getElementById("tab-webhooks"),
+    // Views
     viewDashboard: document.getElementById("view-dashboard"),
     viewAlerts: document.getElementById("view-alerts"),
+    viewSla: document.getElementById("view-sla"),
+    viewTeams: document.getElementById("view-teams"),
     viewAudit: document.getElementById("view-audit"),
     viewWebhooks: document.getElementById("view-webhooks"),
+    // Audit & Webhooks
     auditTbody: document.getElementById("audit-tbody"),
     filterAuditUser: document.getElementById("filter-audit-user"),
     filterAuditAction: document.getElementById("filter-audit-action"),
     btnRefreshAudit: document.getElementById("btn-refresh-audit"),
     btnTriggerWebhook: document.getElementById("btn-trigger-webhook"),
     webhookEventSelect: document.getElementById("webhook-event-select"),
-    // Alerts & Forecast Elements
+    // Alerts & Forecast
     kpiAnomalyCount: document.getElementById("kpi-anomaly-count"),
     kpiForecastSpend: document.getElementById("kpi-forecast-spend"),
     kpiExhaustionDays: document.getElementById("kpi-exhaustion-days"),
@@ -101,6 +119,19 @@
     forecastChartContainer: document.getElementById("forecast-chart-container"),
     alertsTbody: document.getElementById("alerts-tbody"),
     btnRefreshAlerts: document.getElementById("btn-refresh-alerts"),
+    // SLA & Circuit Breaker
+    kpiSlaStatus: document.getElementById("kpi-sla-status"),
+    kpiSlaP95: document.getElementById("kpi-sla-p95"),
+    kpiSlaP50: document.getElementById("kpi-sla-p50"),
+    kpiSlaP99: document.getElementById("kpi-sla-p99"),
+    kpiSlaBreach: document.getElementById("kpi-sla-breach"),
+    kpiCbState: document.getElementById("kpi-cb-state"),
+    kpiCbTrips: document.getElementById("kpi-cb-trips"),
+    cbReasonText: document.getElementById("cb-reason-text"),
+    btnCbTrip: document.getElementById("btn-cb-trip"),
+    btnCbReset: document.getElementById("btn-cb-reset"),
+    // Teams
+    teamsTbody: document.getElementById("teams-tbody"),
   };
 
   // Toast System
@@ -119,18 +150,11 @@
     }, 4000);
   }
 
-  // Calculate stats from client metrics array
+  // Calculate client stats
   function calculateClientStats() {
     const total_runs = clientMetrics.length;
     if (total_runs === 0) {
-      return {
-        total_runs: 0,
-        total_tokens: 0,
-        total_spend_usd: 0.0,
-        success_rate_pct: 100.0,
-        average_duration_s: 0.0,
-        models_breakdown: {},
-      };
+      return { total_runs: 0, total_tokens: 0, total_spend_usd: 0.0, success_rate_pct: 100.0, average_duration_s: 0.0, models_breakdown: {} };
     }
     const total_tokens = clientMetrics.reduce((sum, m) => sum + m.tokens, 0);
     const total_spend_usd = clientMetrics.reduce((sum, m) => sum + m.cost_usd, 0);
@@ -143,17 +167,10 @@
       models_breakdown[m.model] = (models_breakdown[m.model] || 0) + m.tokens;
     });
 
-    return {
-      total_runs,
-      total_tokens,
-      total_spend_usd,
-      success_rate_pct,
-      average_duration_s,
-      models_breakdown,
-    };
+    return { total_runs, total_tokens, total_spend_usd, success_rate_pct, average_duration_s, models_breakdown };
   }
 
-  // Calculate client-side statistical anomalies
+  // Calculate client anomalies
   function calculateClientAnomalies() {
     if (clientMetrics.length < 3) return [];
     const tokensList = clientMetrics.map((m) => m.tokens);
@@ -196,7 +213,7 @@
     return anomalies;
   }
 
-  // Calculate client-side 30-day forecast
+  // Calculate client forecast
   function calculateClientForecast() {
     const totalSpend = clientMetrics.reduce((sum, m) => sum + m.cost_usd, 0);
     const totalRuns = clientMetrics.length;
@@ -217,12 +234,7 @@
         exhaustionDay = d;
       }
 
-      points.push({
-        day: d,
-        projected_spend_usd: acc,
-        upper_bound_usd: upper,
-        lower_bound_usd: lower,
-      });
+      points.push({ day: d, projected_spend_usd: acc, upper_bound_usd: upper, lower_bound_usd: lower });
     }
 
     return {
@@ -235,6 +247,24 @@
       recommended_action: exhaustionDay ? `Quota projected to exhaust in ${exhaustionDay} days` : "Budget trajectory healthy",
       forecast_points: points,
     };
+  }
+
+  // Calculate client SLA & Circuit Breaker
+  function calculateClientSLA() {
+    const totalRuns = clientMetrics.length;
+    if (totalRuns === 0) return { p50_latency_s: 0.0, p95_latency_s: 0.0, p99_latency_s: 0.0, error_rate_pct: 0.0, sla_status: "OPTIMAL", breach_probability_pct: 1.0 };
+
+    const sortedDurs = [...clientMetrics.map((m) => m.duration_seconds)].sort((a, b) => a - b);
+    const p50 = sortedDurs[Math.floor(sortedDurs.length * 0.5)] || 1.2;
+    const p95 = sortedDurs[Math.floor(sortedDurs.length * 0.95)] || 2.1;
+    const p99 = sortedDurs[Math.floor(sortedDurs.length * 0.99)] || 3.2;
+    const errors = clientMetrics.filter((m) => m.status === "error").length;
+    const errRate = +((errors / totalRuns) * 100).toFixed(1);
+
+    const breachProb = +(Math.min(99.0, Math.max(0.5, errRate * 3.0 + Math.max(0, p95 - 2.5) * 15))).toFixed(1);
+    const status = breachProb > 40 ? "CRITICAL" : (breachProb > 15 ? "WARNING" : "OPTIMAL");
+
+    return { p50_latency_s: p50, p95_latency_s: p95, p99_latency_s: p99, error_rate_pct: errRate, sla_status: status, breach_probability_pct: breachProb };
   }
 
   // Live SSE Stream Engine with Static Simulation Fallback
@@ -256,6 +286,8 @@
             fetchDashboardData();
             fetchAuditLogs();
             fetchAlertsAndForecast();
+            fetchSlaAndCircuit();
+            fetchTeams();
           } catch (err) {}
         };
         es.onerror = () => {
@@ -275,10 +307,15 @@
 
   function activateStaticSimulator() {
     isStaticMode = true;
-    if (el.systemStatusText) el.systemStatusText.textContent = "Live: GitHub Pages (Simulated)";
+    if (el.systemStatusText) el.systemStatusText.textContent = "Live: GitHub Pages (v3.0.0)";
     
     // Periodically simulate realistic autonomous agent activity every 15s
     setInterval(() => {
+      if (clientCircuitBreaker.state === "OPEN") {
+        showToast("⚠️ Circuit Breaker OPEN: Non-critical agent turn throttled by auto-governor", "warning");
+        return;
+      }
+
       const agents = [
         { contract_id: "AC-003B", agent_name: "Code Builder", model: "GPT-5.3-Codex", rate: 0.00475 },
         { contract_id: "AC-006", agent_name: "Automated Test Engineer", model: "GPT-5.3-Codex", rate: 0.00475 },
@@ -323,6 +360,8 @@
       fetchDashboardData();
       fetchAuditLogs();
       fetchAlertsAndForecast();
+      fetchSlaAndCircuit();
+      fetchTeams();
     }, 15000);
   }
 
@@ -331,6 +370,8 @@
     const tabs = [
       { btn: el.tabDashboard, view: el.viewDashboard },
       { btn: el.tabAlerts, view: el.viewAlerts },
+      { btn: el.tabSla, view: el.viewSla },
+      { btn: el.tabTeams, view: el.viewTeams },
       { btn: el.tabAudit, view: el.viewAudit },
       { btn: el.tabWebhooks, view: el.viewWebhooks },
     ];
@@ -346,11 +387,113 @@
         t.view.style.display = "none";
       }
     });
+
     if (target === el.tabAudit) {
       fetchAuditLogs();
     } else if (target === el.tabAlerts) {
       fetchAlertsAndForecast();
+    } else if (target === el.tabSla) {
+      fetchSlaAndCircuit();
+    } else if (target === el.tabTeams) {
+      fetchTeams();
     }
+  }
+
+  // SLA & Circuit Breaker Fetching
+  async function fetchSlaAndCircuit() {
+    if (isStaticMode) {
+      state.sla = calculateClientSLA();
+      state.circuitBreaker = clientCircuitBreaker;
+      renderSlaView();
+      return;
+    }
+
+    try {
+      const [slaRes, cbRes] = await Promise.all([
+        fetch("/api/sla/predict"),
+        fetch("/api/circuit-breaker/state"),
+      ]);
+      if (slaRes.ok && cbRes.ok) {
+        state.sla = await slaRes.json();
+        state.circuitBreaker = await cbRes.json();
+        renderSlaView();
+      } else {
+        isStaticMode = true;
+        fetchSlaAndCircuit();
+      }
+    } catch (err) {
+      isStaticMode = true;
+      fetchSlaAndCircuit();
+    }
+  }
+
+  function renderSlaView() {
+    const s = state.sla || {};
+    const cb = state.circuitBreaker || {};
+
+    if (el.kpiSlaStatus) {
+      el.kpiSlaStatus.textContent = s.sla_status || "OPTIMAL";
+      el.kpiSlaStatus.style.color = s.sla_status === "CRITICAL" ? "#ef4444" : (s.sla_status === "WARNING" ? "#f59e0b" : "#10b981");
+    }
+    if (el.kpiSlaP95) el.kpiSlaP95.textContent = `${s.p95_latency_s || 0}s`;
+    if (el.kpiSlaP50) el.kpiSlaP50.textContent = `${s.p50_latency_s || 0}s`;
+    if (el.kpiSlaP99) el.kpiSlaP99.textContent = `${s.p99_latency_s || 0}s`;
+    if (el.kpiSlaBreach) el.kpiSlaBreach.textContent = `${s.breach_probability_pct || 0}%`;
+
+    if (el.kpiCbState) {
+      el.kpiCbState.textContent = cb.state || "CLOSED";
+      el.kpiCbState.style.color = cb.state === "OPEN" ? "#ef4444" : "#10b981";
+    }
+    if (el.kpiCbTrips) el.kpiCbTrips.textContent = cb.tripped_count || 0;
+    if (el.cbReasonText) el.cbReasonText.textContent = cb.reason || "All operational metrics within acceptable bounds.";
+  }
+
+  // Teams & Quotas Fetching
+  async function fetchTeams() {
+    if (isStaticMode) {
+      state.teams = clientTeams;
+      renderTeamsView();
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/teams");
+      if (res.ok) {
+        const data = await res.json();
+        state.teams = data.teams || [];
+        renderTeamsView();
+      } else {
+        isStaticMode = true;
+        fetchTeams();
+      }
+    } catch (err) {
+      isStaticMode = true;
+      fetchTeams();
+    }
+  }
+
+  function renderTeamsView() {
+    if (!el.teamsTbody) return;
+    const list = state.teams || [];
+    el.teamsTbody.innerHTML = list.map((t) => `
+      <tr>
+        <td><strong><code>${t.id}</code></strong></td>
+        <td><strong>${t.name}</strong></td>
+        <td>${t.allocated_tokens.toLocaleString()} tokens</td>
+        <td>${t.spent_tokens.toLocaleString()} tokens</td>
+        <td>$${t.spent_usd.toFixed(4)}</td>
+        <td>
+          <div style="display:flex; align-items:center; gap:0.5rem;">
+            <div style="width: 80px; height: 8px; background: var(--border-color); border-radius: 4px; overflow: hidden;">
+              <div style="width: ${Math.min(100, t.utilization_pct)}%; height: 100%; background: ${t.utilization_pct >= 90 ? '#ef4444' : (t.utilization_pct >= 80 ? '#f59e0b' : '#10b981')};"></div>
+            </div>
+            <small><strong>${t.utilization_pct}%</strong></small>
+          </div>
+        </td>
+        <td><span class="badge" style="background: rgba(59,130,246,0.2); color: var(--accent-primary);">${t.tier}</span></td>
+        <td><span class="tag tag-${t.status === 'warning' ? 'warning' : 'success'}">${t.status}</span></td>
+      </tr>
+    `).join("");
   }
 
   // Anomaly & Forecast Fetching
@@ -423,7 +566,6 @@
       }
     }
 
-    // Render Forecast Chart
     renderForecastChart(f.forecast_points || []);
   }
 
@@ -448,18 +590,13 @@
     try {
       const res = await fetch("/api/alerts/acknowledge", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-User-Role": state.currentRole,
-        },
+        headers: { "Content-Type": "application/json", "X-User-Role": state.currentRole },
         body: JSON.stringify({ alert_id: alertId, user: "developer@synapse-sdlc.dev" }),
       });
       if (res.ok) {
         showToast(`Acknowledged alert #${alertId}`, "success");
         fetchAlertsAndForecast();
         fetchAuditLogs();
-      } else {
-        throw new Error("HTTP error");
       }
     } catch (err) {
       acknowledgedAlerts.add(alertId);
@@ -493,30 +630,18 @@
       y: chartHeight - 35 - (p.lower_bound_usd / maxVal) * (chartHeight - 65),
     }));
 
-    // Build cone polygon
     const upperPath = ptsUpper.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
     const lowerPath = ptsLower.reverse().map((p) => `L ${p.x} ${p.y}`).join(' ');
     const coneD = `${upperPath} ${lowerPath} Z`;
-
-    // Line Path
     const lineD = ptsProjected.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-
-    // Quota line (25 USD)
     const quotaY = chartHeight - 35 - (25.0 / maxVal) * (chartHeight - 65);
 
     let svg = `<svg viewBox="0 0 ${chartWidth} ${chartHeight}" style="width: 100%; height: 100%;">`;
-    
-    // Confidence Cone
     svg += `<path d="${coneD}" fill="rgba(59, 130, 246, 0.15)" stroke="none"/>`;
-    
-    // Quota Threshold line
     svg += `<line x1="40" y1="${quotaY}" x2="${chartWidth - 40}" y2="${quotaY}" stroke="#ef4444" stroke-dasharray="4" stroke-width="1.5"/>`;
     svg += `<text x="${chartWidth - 38}" y="${quotaY + 4}" font-size="9" fill="#ef4444" font-weight="bold">Quota: $25.00</text>`;
-
-    // Main Forecast Line
     svg += `<path d="${lineD}" fill="none" stroke="#3b82f6" stroke-width="3" stroke-linecap="round"/>`;
 
-    // Dots at days 5, 10, 15, 20, 25, 30
     ptsProjected.filter((p) => p.day % 5 === 0 || p.day === 1).forEach((p) => {
       svg += `
         <circle cx="${p.x}" cy="${p.y}" r="4" fill="#3b82f6" stroke="var(--bg-card)" stroke-width="2">
@@ -549,8 +674,7 @@
         return;
       }
       const data = await res.json();
-      const logs = data.logs || [];
-      renderAuditLogsDirect(logs);
+      renderAuditLogsDirect(data.logs || []);
     } catch (err) {
       isStaticMode = true;
       renderAuditLogs(clientAudit, userF, actionF);
@@ -563,7 +687,6 @@
       const matchesAction = actionFilter === "all" || l.action === actionFilter.toUpperCase();
       return matchesUser && matchesAction;
     });
-
     renderAuditLogsDirect(list);
   }
 
@@ -573,9 +696,7 @@
       el.auditTbody.innerHTML = `<tr><td colspan="7" class="text-center" style="padding: 1.5rem; color: var(--text-muted);">No audit logs matching filter criteria.</td></tr>`;
       return;
     }
-    el.auditTbody.innerHTML = logs
-      .map(
-        (l) => `
+    el.auditTbody.innerHTML = logs.map((l) => `
       <tr>
         <td><strong>#${l.id}</strong></td>
         <td><code>${l.action}</code></td>
@@ -585,9 +706,7 @@
         <td>${l.details}</td>
         <td><small>${new Date(l.timestamp).toLocaleTimeString()}</small></td>
       </tr>
-    `
-      )
-      .join("");
+    `).join("");
   }
 
   // Webhook Test Dispatch
@@ -613,20 +732,12 @@
       const res = await fetch("/api/webhooks/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: ev,
-          source: "Synapse SDLC Webhook Engine",
-          timestamp: new Date().toISOString(),
-          environment: "production",
-          threshold_usd: 10.0,
-        }),
+        body: JSON.stringify({ event: ev, source: "Synapse SDLC Webhook Engine", timestamp: new Date().toISOString(), environment: "production", threshold_usd: 10.0 }),
       });
       if (res.ok) {
         const data = await res.json();
         showToast(`Webhook Dispatched: ${data.event_type} (${data.status})`, "success");
         fetchAuditLogs();
-      } else {
-        throw new Error("HTTP error");
       }
     } catch (err) {
       clientAudit.unshift({
@@ -650,14 +761,20 @@
     fetchDashboardData();
     fetchAuditLogs();
     fetchAlertsAndForecast();
+    fetchSlaAndCircuit();
+    fetchTeams();
     initLiveStream();
 
-    // Hash routing support
+    // Hash routing
     const hash = window.location.hash;
     if (hash === "#audit" && el.tabAudit) {
       switchTab(el.tabAudit);
     } else if (hash === "#alerts" && el.tabAlerts) {
       switchTab(el.tabAlerts);
+    } else if (hash === "#sla" && el.tabSla) {
+      switchTab(el.tabSla);
+    } else if (hash === "#teams" && el.tabTeams) {
+      switchTab(el.tabTeams);
     } else if (hash === "#webhooks" && el.tabWebhooks) {
       switchTab(el.tabWebhooks);
     } else if (hash === "#record" && el.modalMetric) {
@@ -670,13 +787,10 @@
     document.documentElement.setAttribute("data-theme", theme);
     state.theme = theme;
     localStorage.setItem("synapse_theme", theme);
-    if (el.themeIcon) {
-      el.themeIcon.textContent = theme === "dark" ? "☀️" : "🌙";
-    }
+    if (el.themeIcon) el.themeIcon.textContent = theme === "dark" ? "☀️" : "🌙";
     renderCharts();
   }
 
-  // Client-side export helper
   function triggerClientDownload(filename, content, mimeType) {
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
@@ -711,6 +825,56 @@
       el.btnRefreshAlerts.addEventListener("click", () => {
         fetchAlertsAndForecast();
         showToast("Anomaly feed & budget forecast refreshed", "info");
+      });
+    }
+
+    if (el.btnCbTrip) {
+      el.btnCbTrip.addEventListener("click", async () => {
+        if (isStaticMode) {
+          clientCircuitBreaker = { state: "OPEN", tripped_count: clientCircuitBreaker.tripped_count + 1, auto_throttle: true, reason: "Manual circuit breaker trip by operator" };
+          clientAudit.unshift({ id: clientAuditCounter++, action: "CIRCUIT_BREAKER_OPEN", user: "operator@synapse-sdlc.dev", role: state.currentRole, status: "warning", details: "Manual circuit breaker trip (Non-critical agents throttled)", timestamp: new Date().toISOString() });
+          showToast("⚠️ Circuit Breaker TRIPPED: Non-critical agent turns throttled", "warning");
+          fetchSlaAndCircuit();
+          fetchAuditLogs();
+          return;
+        }
+        try {
+          const res = await fetch("/api/circuit-breaker/toggle", { method: "POST", headers: { "Content-Type": "application/json", "X-User-Role": state.currentRole }, body: JSON.stringify({ state: "OPEN", reason: "Manual override trip by operator" }) });
+          if (res.ok) {
+            showToast("⚠️ Circuit Breaker TRIPPED: Agents throttled", "warning");
+            fetchSlaAndCircuit();
+            fetchAuditLogs();
+          }
+        } catch (e) {
+          clientCircuitBreaker.state = "OPEN";
+          showToast("⚠️ Circuit Breaker TRIPPED", "warning");
+          fetchSlaAndCircuit();
+        }
+      });
+    }
+
+    if (el.btnCbReset) {
+      el.btnCbReset.addEventListener("click", async () => {
+        if (isStaticMode) {
+          clientCircuitBreaker = { state: "CLOSED", tripped_count: clientCircuitBreaker.tripped_count, auto_throttle: false, reason: "Operational reset to normal" };
+          clientAudit.unshift({ id: clientAuditCounter++, action: "CIRCUIT_BREAKER_CLOSED", user: "operator@synapse-sdlc.dev", role: state.currentRole, status: "success", details: "Circuit breaker reset to CLOSED by operator", timestamp: new Date().toISOString() });
+          showToast("✅ Circuit Breaker RESET: Normal execution resumed", "success");
+          fetchSlaAndCircuit();
+          fetchAuditLogs();
+          return;
+        }
+        try {
+          const res = await fetch("/api/circuit-breaker/toggle", { method: "POST", headers: { "Content-Type": "application/json", "X-User-Role": state.currentRole }, body: JSON.stringify({ state: "CLOSED", reason: "Operational reset" }) });
+          if (res.ok) {
+            showToast("✅ Circuit Breaker RESET: Normal execution resumed", "success");
+            fetchSlaAndCircuit();
+            fetchAuditLogs();
+          }
+        } catch (e) {
+          clientCircuitBreaker.state = "CLOSED";
+          showToast("✅ Circuit Breaker RESET", "success");
+          fetchSlaAndCircuit();
+        }
       });
     }
 
@@ -758,6 +922,8 @@
 
     if (el.tabDashboard) el.tabDashboard.addEventListener("click", () => switchTab(el.tabDashboard));
     if (el.tabAlerts) el.tabAlerts.addEventListener("click", () => switchTab(el.tabAlerts));
+    if (el.tabSla) el.tabSla.addEventListener("click", () => switchTab(el.tabSla));
+    if (el.tabTeams) el.tabTeams.addEventListener("click", () => switchTab(el.tabTeams));
     if (el.tabAudit) el.tabAudit.addEventListener("click", () => switchTab(el.tabAudit));
     if (el.tabWebhooks) el.tabWebhooks.addEventListener("click", () => switchTab(el.tabWebhooks));
 
@@ -774,20 +940,16 @@
           clientMetrics = [];
           fetchDashboardData();
           fetchAlertsAndForecast();
+          fetchSlaAndCircuit();
           showToast("Telemetry store purged", "warning");
           return;
         }
         try {
-          const res = await fetch("/api/admin/purge", {
-            method: "POST",
-            headers: { "X-User-Role": state.currentRole },
-          });
+          const res = await fetch("/api/admin/purge", { method: "POST", headers: { "X-User-Role": state.currentRole } });
           if (res.ok) {
             fetchDashboardData();
             fetchAlertsAndForecast();
             showToast("Telemetry store purged", "warning");
-          } else {
-            alert("Error: Insufficient permissions to purge records.");
           }
         } catch (err) {
           clientMetrics = [];
@@ -807,7 +969,6 @@
       el.btnPurge.style.display = "none";
       el.btnAddMetric.style.display = "inline-flex";
     } else {
-      // Viewer
       el.btnPurge.style.display = "none";
       el.btnAddMetric.style.display = "none";
     }
@@ -822,7 +983,7 @@
       renderTable();
       renderCharts();
       if (el.footerLastSync) {
-        el.footerLastSync.textContent = `Synchronized: ${new Date().toLocaleTimeString()} (Client Live Engine)`;
+        el.footerLastSync.textContent = `Synchronized: ${new Date().toLocaleTimeString()} (Client Live Engine v3.0.0)`;
       }
       return;
     }
@@ -873,9 +1034,7 @@
         item.agent_name.toLowerCase().includes(state.searchFilter) ||
         item.model.toLowerCase().includes(state.searchFilter);
 
-      const matchesStatus =
-        state.statusFilter === "all" || item.status === state.statusFilter;
-
+      const matchesStatus = state.statusFilter === "all" || item.status === state.statusFilter;
       return matchesSearch && matchesStatus;
     });
 
@@ -884,9 +1043,7 @@
       return;
     }
 
-    el.tableBody.innerHTML = list
-      .map(
-        (m) => `
+    el.tableBody.innerHTML = list.map((m) => `
       <tr>
         <td><strong>#${m.id}</strong></td>
         <td><code>${m.contract_id}</code></td>
@@ -898,12 +1055,10 @@
         <td><span class="tag tag-${m.status}">${m.status}</span></td>
         <td><small>${new Date(m.timestamp).toLocaleTimeString()}</small></td>
       </tr>
-    `
-      )
-      .join("");
+    `).join("");
   }
 
-  // Native Interactive SVG Chart Engine
+  // Render Charts
   function renderCharts() {
     renderModelBarChart();
     renderTimelineLineChart();
@@ -926,7 +1081,6 @@
     const colors = ["#3b82f6", "#10b981", "#8b5cf6", "#f59e0b", "#ec4899"];
 
     let svg = `<svg viewBox="0 0 ${chartWidth} ${chartHeight}" style="width: 100%; height: 100%;">`;
-
     entries.forEach(([modelName, tokens], idx) => {
       const h = Math.round((tokens / maxTokens) * (chartHeight - 50));
       const x = 30 + idx * (barWidth + gap);
@@ -941,7 +1095,6 @@
         <text x="${x + barWidth / 2}" y="${chartHeight - 12}" text-anchor="middle" font-size="9" fill="var(--text-secondary)">${modelName.split(" ")[0]}</text>
       `;
     });
-
     svg += `</svg>`;
     el.modelChartContainer.innerHTML = svg;
   }
@@ -964,15 +1117,11 @@
       return { x, y, cost: item.cost_usd, name: item.contract_id };
     });
 
-    const pathD = points.reduce((acc, p, idx) => {
-      return idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
-    }, "");
+    const pathD = points.reduce((acc, p, idx) => idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`, "");
 
     let svg = `<svg viewBox="0 0 ${chartWidth} ${chartHeight}" style="width: 100%; height: 100%;">`;
-    // Line
     svg += `<path d="${pathD}" fill="none" stroke="var(--accent-primary)" stroke-width="3" stroke-linecap="round"/>`;
 
-    // Dots
     points.forEach((p) => {
       svg += `
         <circle cx="${p.x}" cy="${p.y}" r="4" fill="var(--accent-primary)" stroke="var(--bg-card)" stroke-width="2">
@@ -981,7 +1130,6 @@
         <text x="${p.x}" y="${chartHeight - 12}" text-anchor="middle" font-size="8" fill="var(--text-secondary)">${p.name}</text>
       `;
     });
-
     svg += `</svg>`;
     el.timelineChartContainer.innerHTML = svg;
   }
@@ -1027,6 +1175,7 @@
       showToast(`Recorded turn for ${contract} successfully`, "success");
       fetchDashboardData();
       fetchAlertsAndForecast();
+      fetchSlaAndCircuit();
       fetchAuditLogs();
       return;
     }
@@ -1034,10 +1183,7 @@
     try {
       const res = await fetch("/api/metrics", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-User-Role": state.currentRole,
-        },
+        headers: { "Content-Type": "application/json", "X-User-Role": state.currentRole },
         body: JSON.stringify(newRecord),
       });
 
@@ -1046,8 +1192,7 @@
         showToast(`Recorded turn for ${contract} successfully`, "success");
         fetchDashboardData();
         fetchAlertsAndForecast();
-      } else {
-        throw new Error("HTTP Error");
+        fetchSlaAndCircuit();
       }
     } catch (err) {
       clientMetrics.unshift(newRecord);

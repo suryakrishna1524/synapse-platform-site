@@ -44,9 +44,11 @@
         </button>
 
         <!-- Tab Navigation -->
-        <div class="nav-tabs" style="display:flex; gap:0.5rem;">
+        <div class="nav-tabs" style="display:flex; gap:0.5rem; flex-wrap:wrap;">
           <button id="tab-dashboard" class="btn btn-primary">📊 Dashboard</button>
           <button id="tab-alerts" class="btn btn-secondary">🚨 Alerts & Forecast</button>
+          <button id="tab-sla" class="btn btn-secondary">⚡ SLA & Circuit</button>
+          <button id="tab-teams" class="btn btn-secondary">👥 Teams & Quotas</button>
           <button id="tab-audit" class="btn btn-secondary">🛡️ Audit Logs</button>
           <button id="tab-webhooks" class="btn btn-secondary">🔔 Webhooks</button>
         </div>
@@ -343,6 +345,97 @@
           </div>
         </section>
       </div>
+
+      <!-- VIEW 5: SLA Prediction & Circuit Breaker -->
+      <div id="view-sla" class="view-panel" style="display:none;">
+        <section class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">SLA Compliance Health</span>
+              <span class="kpi-icon">⚡</span>
+            </div>
+            <div class="kpi-value highlight" id="kpi-sla-status" style="color: var(--success);">OPTIMAL</div>
+            <div class="kpi-subtitle">Target P95 &le; 2.5s &bull; Error &le; 2%</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">P95 Turn Latency</span>
+              <span class="kpi-icon">⏱️</span>
+            </div>
+            <div class="kpi-value" id="kpi-sla-p95">1.90s</div>
+            <div class="kpi-subtitle">P50: <span id="kpi-sla-p50">1.20s</span> &bull; P99: <span id="kpi-sla-p99">3.10s</span></div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Breach Probability</span>
+              <span class="kpi-icon">🎯</span>
+            </div>
+            <div class="kpi-value" id="kpi-sla-breach">1.5%</div>
+            <div class="kpi-subtitle">Monte Carlo Velocity Model</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Circuit Breaker State</span>
+              <span class="kpi-icon">🛡️</span>
+            </div>
+            <div class="kpi-value highlight" id="kpi-cb-state" style="color: var(--success);">CLOSED</div>
+            <div class="kpi-subtitle">Tripped Count: <span id="kpi-cb-trips">0</span></div>
+          </div>
+        </section>
+
+        <!-- Circuit Breaker Interactive Controller -->
+        <section class="card" style="margin-top: 1.5rem;">
+          <div class="chart-header">
+            <h3>Automated Circuit Breaker Governor</h3>
+            <span class="badge" id="badge-cb-mode">Auto-Governor Active</span>
+          </div>
+          <div style="padding: 1rem 0; display: flex; flex-direction: column; gap: 1rem;">
+            <p style="color: var(--text-secondary); margin: 0; font-size: 0.9rem;" id="cb-reason-text">
+              All agent turn executions are proceeding normally within SLA parameters.
+            </p>
+            <div style="display: flex; gap: 1rem; align-items: center;">
+              <button id="btn-cb-trip" class="btn btn-secondary" style="border-color: #ef4444; color: #ef4444;">
+                <span>⚠️</span> Trip Breaker (Throttle Agents)
+              </button>
+              <button id="btn-cb-reset" class="btn btn-primary">
+                <span>🔄</span> Reset to Normal (Closed)
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- VIEW 6: Multi-Tenant Team Workspaces & Model Quota Matrix -->
+      <div id="view-teams" class="view-panel" style="display:none;">
+        <section class="table-card">
+          <div class="table-header">
+            <h3>Multi-Tenant Engineering Squad Workspaces</h3>
+            <span class="badge">Dynamic Tier Degradation &ge; 90%</span>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Squad ID</th>
+                  <th>Department Name</th>
+                  <th>Allocated Quota</th>
+                  <th>Tokens Spent</th>
+                  <th>Spend (USD)</th>
+                  <th>Utilization</th>
+                  <th>Active Model Tier</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="teams-tbody">
+                <tr><td colspan="8" class="text-center" style="padding: 1.5rem; color: var(--text-muted);">Loading multi-tenant squad telemetry...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </main>
 
     <!-- Modal: Record New Metric -->
@@ -422,6 +515,6 @@
     </footer>
   </div>
 
-  <script src="app.js?v=2.1.0"></script>
+  <script src="app.js?v=3.0.0"></script>
 </body>
 </html>
