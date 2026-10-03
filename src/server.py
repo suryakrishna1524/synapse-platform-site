@@ -82,6 +82,15 @@ class PlatformRequestHandler(BaseHTTPRequestHandler):
             quota = float(query.get("quota", [25.0])[0])
             forecast = GLOBAL_STORE.get_budget_forecast(projected_days=days, monthly_quota_usd=quota)
             self._send_json(200, forecast)
+        elif path == "/api/sla/predict":
+            sla = GLOBAL_STORE.get_sla_prediction()
+            self._send_json(200, sla)
+        elif path == "/api/circuit-breaker/state":
+            cb = GLOBAL_STORE.get_circuit_breaker_state()
+            self._send_json(200, cb)
+        elif path == "/api/teams":
+            teams = GLOBAL_STORE.get_team_quotas()
+            self._send_json(200, {"count": len(teams), "teams": teams})
         elif path == "/api/stream":
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -173,6 +182,26 @@ class PlatformRequestHandler(BaseHTTPRequestHandler):
             user = payload.get("user", "operator@synapse-sdlc.dev")
             GLOBAL_STORE.acknowledge_alert(alert_id, user, role)
             self._send_json(200, {"status": "acknowledged", "alert_id": alert_id})
+        elif path == "/api/circuit-breaker/toggle":
+            role = self.headers.get("X-User-Role", "operator").lower()
+            if role not in ("admin", "operator"):
+                self._send_json(403, {"error": "Forbidden: Requires Operator or Admin role"})
+                return
+            state = payload.get("state", "OPEN")
+            reason = payload.get("reason", "Manual toggle by operator")
+            user = payload.get("user", "operator@synapse-sdlc.dev")
+            cb = GLOBAL_STORE.toggle_circuit_breaker(state, reason, user, role)
+            self._send_json(200, cb)
+        elif path == "/api/teams/quota":
+            role = self.headers.get("X-User-Role", "admin").lower()
+            if role != "admin":
+                self._send_json(403, {"error": "Forbidden: Requires Admin role"})
+                return
+            team_id = payload.get("team_id", "")
+            quota = int(payload.get("quota_tokens", 50000))
+            user = payload.get("user", "admin@synapse-sdlc.dev")
+            res = GLOBAL_STORE.update_team_quota(team_id, quota, user, role)
+            self._send_json(200, {"status": "updated" if res else "not_found", "team_id": team_id})
         elif path == "/api/admin/purge":
             role = self.headers.get("X-User-Role", "admin").lower()
             if role != "admin":

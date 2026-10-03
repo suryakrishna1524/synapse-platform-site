@@ -392,6 +392,135 @@ class TelemetryStore:
                 "forecast_points": forecast_points,
             }
 
+    def get_sla_prediction(self) -> Dict[str, Any]:
+        """Calculates latency percentiles, error rates, and SLA breach probability."""
+        with self._lock:
+            total_runs = len(self._records)
+            if total_runs == 0:
+                return {
+                    "total_runs": 0,
+                    "error_rate_pct": 0.0,
+                    "p50_latency_s": 0.0,
+                    "p95_latency_s": 0.0,
+                    "p99_latency_s": 0.0,
+                    "sla_status": "OPTIMAL",
+                    "breach_probability_pct": 1.2,
+                }
+
+            durations = sorted(r["duration_seconds"] for r in self._records)
+            errors = sum(1 for r in self._records if r["status"] == "error")
+            err_pct = round((errors / total_runs) * 100, 2)
+
+            def get_percentile(data, pct):
+                k = (len(data) - 1) * (pct / 100.0)
+                f = int(k)
+                c = min(f + 1, len(data) - 1)
+                d = k - f
+                return round(data[f] + (data[c] - data[f]) * d, 2)
+
+            p50 = get_percentile(durations, 50)
+            p95 = get_percentile(durations, 95)
+            p99 = get_percentile(durations, 99)
+
+            breach_prob = round(min(99.0, max(0.5, (err_pct * 3.5) + (max(0.0, p95 - 2.5) * 20))), 1)
+            status = "CRITICAL" if breach_prob > 50 or err_pct > 10 else ("WARNING" if breach_prob > 20 else "HEALTHY")
+
+            return {
+                "total_runs": total_runs,
+                "error_rate_pct": err_pct,
+                "p50_latency_s": p50,
+                "p95_latency_s": p95,
+                "p99_latency_s": p99,
+                "sla_status": status,
+                "breach_probability_pct": breach_prob,
+                "target_p95_sla_s": 2.5,
+            }
+
+    def get_circuit_breaker_state(self) -> Dict[str, Any]:
+        """Returns active circuit breaker health and throttling state."""
+        with self._lock:
+            cb = getattr(self, "_circuit_breaker", {
+                "state": "CLOSED",
+                "tripped_count": 0,
+                "last_tripped": None,
+                "auto_throttle": False,
+                "reason": "All operational metrics within acceptable bounds",
+            })
+            return cb
+
+    def toggle_circuit_breaker(self, target_state: str, reason: str, operator: str, role: str) -> Dict[str, Any]:
+        """Manually or automatically triggers circuit breaker state change."""
+        with self._lock:
+            valid_states = ("CLOSED", "OPEN", "HALF_OPEN")
+            state = str(target_state).upper().strip()
+            if state not in valid_states:
+                state = "OPEN"
+
+            current = getattr(self, "_circuit_breaker", {"state": "CLOSED", "tripped_count": 0, "last_tripped": None})
+            tripped_count = current.get("tripped_count", 0) + (1 if state == "OPEN" else 0)
+
+            self._circuit_breaker = {
+                "state": state,
+                "tripped_count": tripped_count,
+                "last_tripped": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) if state == "OPEN" else current.get("last_tripped"),
+                "auto_throttle": state == "OPEN",
+                "reason": self._sanitize_text(reason) or ("Manual override by operator" if state == "OPEN" else "Operational reset"),
+            }
+
+            self.add_audit_log(
+                action=f"CIRCUIT_BREAKER_{state}",
+                user=operator or "operator",
+                role=role or "operator",
+                status="success",
+                details=f"Circuit breaker switched to {state}: {self._circuit_breaker['reason']}",
+            )
+            return self._circuit_breaker
+
+    def get_team_quotas(self) -> List[Dict[str, Any]]:
+        """Returns multi-tenant team workspaces, token quotas, and active tier caps."""
+        with self._lock:
+            # Seed default engineering squads
+            teams = getattr(self, "_team_quotas", {
+                "team-core": {"name": "Core Platform & Engine", "allocated_tokens": 100000, "spent_tokens": 38400, "spent_usd": 0.182, "tier": "Claude Sonnet 5", "status": "active"},
+                "team-secops": {"name": "Security & Compliance Ops", "allocated_tokens": 50000, "spent_tokens": 14200, "spent_usd": 0.068, "tier": "Claude Sonnet 5", "status": "active"},
+                "team-devops": {"name": "IaC & Kubernetes DevOps", "allocated_tokens": 75000, "spent_tokens": 22100, "spent_usd": 0.105, "tier": "GPT-5.3-Codex", "status": "active"},
+                "team-frontend": {"name": "Frontend & Reactive UI", "allocated_tokens": 60000, "spent_tokens": 19500, "spent_usd": 0.093, "tier": "Claude Haiku 4.5", "status": "active"},
+            })
+
+            results = []
+            for tid, t in teams.items():
+                utilization = round((t["spent_tokens"] / max(1, t["allocated_tokens"])) * 100, 1)
+                capped = utilization >= 90.0
+                results.append({
+                    "id": tid,
+                    "name": t["name"],
+                    "allocated_tokens": t["allocated_tokens"],
+                    "spent_tokens": t["spent_tokens"],
+                    "spent_usd": round(t["spent_usd"], 4),
+                    "utilization_pct": utilization,
+                    "tier": "Claude Haiku 4.5 (Downgraded)" if capped else t["tier"],
+                    "is_capped": capped,
+                    "status": "warning" if utilization >= 80.0 else "active",
+                })
+            return results
+
+    def update_team_quota(self, team_id: str, new_quota: int, operator: str, role: str) -> bool:
+        """Adjusts squad token quota allocation with security audit logging."""
+        with self._lock:
+            if not hasattr(self, "_team_quotas"):
+                self.get_team_quotas()
+            if team_id in self._team_quotas:
+                self._team_quotas[team_id]["allocated_tokens"] = max(1000, int(new_quota))
+                self.add_audit_log(
+                    action="TEAM_QUOTA_UPDATE",
+                    user=operator or "admin",
+                    role=role or "admin",
+                    status="success",
+                    details=f"Updated token allocation for {team_id} to {new_quota:,} tokens",
+                )
+                return True
+            return False
+
     @staticmethod
     def _sanitize_text(text: str) -> str:
         if not text:
